@@ -20,8 +20,16 @@ def peaks_filter(x:np.ndarray, y:np.ndarray, peaks:np.ndarray, k:int=1) -> np.nd
         max_peak = peaks[ypeaks == ypeaks[np.isin(ypeaks, y[x < x[max_peak][0]])].max()]
     return max_peak
 
+def pixel_scale_1d(sig1d:np.array):
+    fft = np.abs(np.fft.fftshift(np.fft.fft(np.fft.ifftshift(sig1d))))
+    freqs = np.fft.ifftshift(np.fft.fftfreq(len(fft), 1))
+    
+    peaks, _ = find_peaks(fft)
+    P = peaks_filter(freqs, fft, peaks, 2)
+    return np.abs(freqs[P][0])
+
 def pixel_scale(image:np.ndarray):
-    fft = np.abs(fft2d(image))
+    '''fft = np.abs(fft2d(image))
     xfreqs = np.fft.ifftshift(np.fft.fftfreq(fft.shape[0], 1))
     yfreqs = np.fft.ifftshift(np.fft.fftfreq(fft.shape[1], 1))
     
@@ -32,7 +40,12 @@ def pixel_scale(image:np.ndarray):
     Py = peaks_filter(yfreqs, ymean, ypeaks, 2)
     Px = peaks_filter(xfreqs, xmean, xpeaks, 2)
     
-    return np.abs(xfreqs[Px][0]), np.abs(xfreqs[Py][0])
+    return np.abs(xfreqs[Px][0]), np.abs(xfreqs[Py][0])'''
+    Fx = np.apply_along_axis(pixel_scale_1d, 0, image)
+    Fy = np.apply_along_axis(pixel_scale_1d, 1, image)
+    Fx = Fx[Fx > 0.05]
+    Fy = Fy[Fy > 0.05]
+    return (np.median(Fx), np.std(Fx)), (np.median(Fy), np.std(Fy))
 
 def threshold_kmeans(image:np.ndarray):
     img_flat = image.flatten()
@@ -61,9 +74,9 @@ class Model(ABC):
         pass
 
     def morphological_processing(self, image:np.ndarray) -> np.ndarray:
-        image = nd.binary_opening(image, iterations=self.opening_iter)
-        image = nd.binary_closing(image, iterations=self.closing_iter)
-        image = nd.binary_dilation(image, iterations=self.dilation_iter)
+        if self.opening_iter > 0: image = nd.binary_opening(image, iterations=self.opening_iter)
+        if self.closing_iter > 0: image = nd.binary_closing(image, iterations=self.closing_iter)
+        if self.dilation_iter > 0: image = nd.binary_dilation(image, iterations=self.dilation_iter)
         return image
 
 @dataclass
@@ -83,18 +96,18 @@ class EdgeBlur(Model):
                 nd.minimum_filter(var, self.minimum_size)
             )
         )
-        self.mask = mask.copy()
-        fx, fy = pixel_scale(image)
-        return np.sum(mask)*fx*fy
+        (fx, stdfx), (fy, stdfy) = pixel_scale(image)
+        area = np.sum(mask)*fx*fy
+        return area, area*np.sqrt((fy*stdfx)**2 + (fx*stdfy)**2)
 
 @dataclass
 class FourierGabor(Model):
     def predict(self, image:np.ndarray) -> float:
         if len(image.shape) > 2: 
-            img = rgb2gray(image)
+            image = rgb2gray(image)
     
-        fx, fy = pixel_scale(img)
-        filtered = power(img, gabor_kernel(fx, theta=0)) + power(img, gabor_kernel(fy, theta=np.pi/2))
+        (fx, stdfx), (fy, stdfy) = pixel_scale(image)
+        filtered = power(image, gabor_kernel(fx, theta=0)) + power(image, gabor_kernel(fy, theta=np.pi/2))
         mask = self.morphological_processing(filtered < threshold_minimum(filtered))
-        self.mask = mask.copy()
-        return np.sum(mask)*fx*fy
+        area = np.sum(mask)*fx*fy
+        return area, area*np.sqrt((fy*stdfx)**2 + (fx*stdfy)**2)
