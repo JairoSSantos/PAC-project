@@ -127,6 +127,18 @@ def find_slope(image:np.ndarray, n_angles=500) -> float:
     angle = slope_values[probs == probs.max()][0] # angulo com maior probabilidade
     return angle
 
+def threshold_kmeans(img, nbins=50):
+    data = img.flatten()
+    km = KMeans(3)
+    cluster_id = km.fit_predict(data.reshape(-1, 1))
+    min_bin = None
+    for ii in np.unique(cluster_id):
+        subset = data[cluster_id == ii]
+        hist, bins = np.histogram(subset, bins=nbins)
+        if min_bin == None or bins.max() < min_bin:
+            min_bin = np.max(subset) #bins[:-1][hist == hist.min()][0]
+    return min_bin
+
 def propagation_of_error(Ap, fx, fy, error_Ap, error_fx, error_fy):
     return np.sqrt(
         (fx*fy*error_Ap)**2 +
@@ -195,7 +207,7 @@ class FourierGabor(Segmentation):
         if self.maximum: filtered = nd.maximum_filter(filtered, footprint=disk(self.maximum))
         if self.median: filtered = nd.median_filter(filtered, footprint=disk(self.median))
 
-        mask = filtered < threshold_isodata(filtered, nbins=self.nbins)
+        mask = filtered < threshold_kmeans(filtered, nbins=self.nbins)
         mask = self.morphological_processing(mask)
         Ap = np.sum(mask)
 
