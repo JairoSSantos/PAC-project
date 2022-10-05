@@ -2,27 +2,11 @@ import numpy as np
 import scipy.ndimage as nd
 from scipy.signal import find_peaks
 from skimage.color import rgb2gray
-from skimage.filters import farid, gabor, threshold_triangle, threshold_isodata
+from skimage.filters import gabor
 from skimage.transform import rotate, hough_line, hough_line_peaks
 from skimage.feature import canny
-from skimage.morphology import disk
 from sklearn.cluster import KMeans
 from dataclasses import dataclass
-from abc import ABC, abstractmethod
-
-def variance(image:np.ndarray, size:list[int, int]|int) -> np.ndarray:
-    '''
-    Variância de uma imagem.
-
-    Args
-        image: imagem na forma de um array bidimensional (escala de cinza).
-        size: tamanho do núcleo de convolução.
-    
-    Returns
-        var: variância no formato de um array com as mesmas dimensões da imagem de entrada.
-    '''
-    var = nd.uniform_filter(image**2, size) - nd.uniform_filter(image, size)**2
-    return var
 
 def fft1d(y:np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     '''
@@ -35,8 +19,8 @@ def fft1d(y:np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         fft: transformada de fourier do sinal.
         freqs: frequências associadas à transformada do sinal.
     '''
-    fft = np.abs(np.fft.fftshift(np.fft.fft(np.fft.ifftshift(y))))
-    freqs = np.fft.ifftshift(np.fft.fftfreq(len(fft), 1))
+    fft = np.abs(np.fft.fft(np.fft.ifftshift(y)))
+    freqs = np.fft.fftfreq(len(fft), 1)
     return fft, freqs
 
 def fft2d(image:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -50,10 +34,10 @@ def fft2d(image:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         fft: a imagem no domínio das frequências.
         ifreqs, jfreqs: frequências associadas à transformada do sinal em cada dimensão.
     '''
-    fft = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(image)))
-    ifreqs = np.fft.ifftshift(np.fft.fftfreq(fft.shape[0], 1))
-    jfreqs = np.fft.ifftshift(np.fft.fftfreq(fft.shape[1], 1))
-    return fft, ifreqs, jfreqs
+    fft = np.fft.fft2(np.fft.ifftshift(image))
+    yfreqs = np.fft.fftfreq(fft.shape[0], 1)
+    xfreqs = np.fft.fftfreq(fft.shape[1], 1)
+    return fft, xfreqs, yfreqs
 
 def peaks_filter(x:np.ndarray, y:np.ndarray, peaks:np.ndarray, k:int=1) -> np.ndarray:
     '''
@@ -92,7 +76,7 @@ def higher_frequency(signal_1d:np.array) -> float:
     ][0]) # frequência associada ao pico mais intenso diferente de y(x = 0)
     return f
 
-def pixel_scale(image:np.ndarray):
+def pixel_scale(image:np.ndarray) -> tuple[tuple[float, float], tuple[float, float]]:
     '''
     Encontrar a escala milímetro/pixel utilizando transformada de fourier da image.
 
@@ -127,7 +111,7 @@ def find_slope(image:np.ndarray, n_angles=500) -> float:
     angle = slope_values[probs == probs.max()][0] # angulo com maior probabilidade
     return angle
 
-def threshold_kmeans(img, nclusters, nbins):
+def threshold_kmeans(img, nclusters, nbins) -> float:
     data = img.flatten()
     km = KMeans(nclusters)
     cluster_id = km.fit_predict(data.reshape(-1, 1))
@@ -139,7 +123,7 @@ def threshold_kmeans(img, nclusters, nbins):
             min_bin = np.max(subset) #bins[:-1][hist == hist.min()][0]
     return min_bin
 
-def propagation_of_error(Ap, fx, fy, error_Ap, error_fx, error_fy):
+def propagation_of_error(Ap, fx, fy, error_Ap, error_fx, error_fy) -> float:
     return np.sqrt(
         (fx*fy*error_Ap)**2 +
         (Ap*fy*error_fx)**2 +
@@ -147,69 +131,27 @@ def propagation_of_error(Ap, fx, fy, error_Ap, error_fx, error_fy):
     )
 
 @dataclass
-class Segmentation(ABC):
-    opening:int
-    closing:int
-    dilation:int
+class FourierGabor:
+    nclusters:int = 3 # quantidade de núclos de cinza para segmentação
+    nbins:int = 50 # quantidade de bins do histograma de cinza
+    opening:int = 6 # número de iterações na abertra
+    dilation:int = 2 # número de iterações na dilatação
 
-    @abstractmethod
-    def predict(self):
-        pass
-
-    def morphological_processing(self, image:np.ndarray) -> np.ndarray:
-        if self.opening > 0: image = nd.binary_opening(image, iterations=self.opening)
-        if self.closing > 0: image = nd.binary_closing(image, iterations=self.closing)
-        if self.dilation > 0: image = nd.binary_dilation(image, iterations=self.dilation)
-        return image
-
-@dataclass
-class EdgeBlur(Segmentation):
-    variance_size:int
-    minimum_size:int
-
-    def predict(self, image:np.ndarray) -> float:
+    def predict(self, image:np.ndarray, auto_rotate:bool=False) -> tuple[float, float]:
         if len(image.shape) > 2: 
-            image = rgb2gray(image)
-        var = variance( #blur
-                farid(image), #edge
-                self.variance_size
-            )
-        mask = self.morphological_processing(
-            threshold_triangle(
-                nd.minimum_filter(var, self.minimum_size),
-                nbins=50
-            )
-        )
-        (fx, stdfx), (fy, stdfy) = pixel_scale(image)
-        area = np.sum(mask)*fx*fy
-        return area, area*np.sqrt((fy*stdfx)**2 + (fx*stdfy)**2)
-
-@dataclass
-class FourierGabor(Segmentation):
-    minimum:int=5
-    maximum:int=5
-    median:int=5
-    nclusters:int=3
-    nbins:int=50
-
-    def predict(self, image:np.ndarray, auto_rotate:bool=False) -> float:
-        if len(image.shape) > 2: 
-            image = rgb2gray(image)
+            image = rgb2gray(image) # transformar imagem para escala de cinza
         if auto_rotate:
-            image = rotate(image, find_slope(image), mode='reflect')
+            image = rotate(image, -find_slope(image), mode='reflect') # rotação automática com transformação de Hough
     
-        (fx, std_fx), (fy, std_fy) = pixel_scale(image)
+        (fx, std_fx), (fy, std_fy) = pixel_scale(image) # Encontrar a proporção pixel-milímetro
 
-        xreal, ximag = gabor(image, fx, 0, n_stds=3)
-        yreal, yimag = gabor(image, fy, np.pi/2, n_stds=3)
-        filtered = np.sqrt(xreal**2 + ximag**2) + np.sqrt(yreal**2 + yimag**2)
+        xreal, ximag = gabor(image, fx, 0, n_stds=3) # filtros de Gabor no eixo x
+        yreal, yimag = gabor(image, fy, np.pi/2, n_stds=3) # filtros de Gabor no eixo y
+        filtered = np.sqrt(xreal**2 + ximag**2) + np.sqrt(yreal**2 + yimag**2) # imagem filtrada
 
-        if self.minimum: filtered = nd.minimum_filter(filtered, footprint=disk(self.minimum))
-        if self.maximum: filtered = nd.maximum_filter(filtered, footprint=disk(self.maximum))
-        if self.median: filtered = nd.median_filter(filtered, footprint=disk(self.median))
-
-        mask = filtered < threshold_kmeans(filtered, nclusters=self.nclusters, nbins=self.nbins)
-        mask = self.morphological_processing(mask)
-        Ap = np.sum(mask)
+        mask = filtered < threshold_kmeans(filtered, nclusters=self.nclusters, nbins=self.nbins) # segmentação
+        mask = nd.binary_opening(mask, iterations=self.opening) # abertura
+        mask = nd.binary_dilation(mask, iterations=self.dilation) # dilatação
+        Ap = np.sum(mask) # cálculo da área
 
         return Ap*fx*fy, propagation_of_error(Ap, fx, fy, 0, std_fx, std_fy)
