@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.ndimage as nd
 from scipy.signal import find_peaks
+from scipy.stats import mode
 from skimage.color import rgb2gray
 from skimage.filters import gabor
 from skimage.transform import rotate, hough_line, hough_line_peaks
@@ -88,8 +89,11 @@ def pixel_scale(image:np.ndarray) -> tuple[tuple[float, float], tuple[float, flo
     '''
     Fx = np.apply_along_axis(higher_frequency, 0, image)
     Fy = np.apply_along_axis(higher_frequency, 1, image)
-    Fx, Fy = Fx[Fx > 0.025], Fy[Fy > 0.025] # aplicando um limite para baixas frequências
-    return (np.median(Fx), np.std(Fx)), (np.median(Fy), np.std(Fy))
+    
+    fx = np.median(Fx[Fx > 0.025])
+    fy = np.median(Fy[Fy > 0.025])
+    
+    return (fx, (Fx.max() - Fx.min())/40), (fy, (Fy.max() - Fy.min())/40)
 
 def find_slope(image:np.ndarray, n_angles=500) -> float:
     '''
@@ -105,11 +109,8 @@ def find_slope(image:np.ndarray, n_angles=500) -> float:
         canny(image), # bordas da imagem
         np.linspace(-np.pi/2, np.pi/2, n_angles) # angulos
     ))
-    slopes = np.degrees(angles + np.pi/2) # inclinação em relação ao eixo x
-    slope_values = np.unique(slopes)
-    probs = np.array([np.sum(slopes == val) for val in slope_values])
-    angle = slope_values[probs == probs.max()][0] # angulo com maior probabilidade
-    return angle
+    slopes = np.degrees(angles) + 90 # inclinação em relação ao eixo x
+    return mode(slopes)[0][0] # angulo com maior ocorrência
 
 def threshold_kmeans(img, nclusters, nbins) -> float:
     data = img.flatten()
@@ -120,7 +121,7 @@ def threshold_kmeans(img, nclusters, nbins) -> float:
         subset = data[cluster_id == ii]
         hist, bins = np.histogram(subset, bins=nbins)
         if min_bin == None or bins.max() < min_bin:
-            min_bin = np.max(subset) #bins[:-1][hist == hist.min()][0]
+            min_bin = np.max(subset)
     return min_bin
 
 def propagation_of_error(Ap, fx, fy, error_Ap, error_fx, error_fy) -> float:
@@ -141,17 +142,27 @@ class FourierGabor:
         if len(image.shape) > 2: 
             image = rgb2gray(image) # transformar imagem para escala de cinza
         if auto_rotate:
-            image = rotate(image, -find_slope(image), mode='reflect') # rotação automática com transformação de Hough
+            image = rotate(image, find_slope(image), mode='reflect') # rotação automática com transformação de Hough
     
         (fx, std_fx), (fy, std_fy) = pixel_scale(image) # Encontrar a proporção pixel-milímetro
+        fx = 0.025 if fx < 0.025 else fx
+        fy = 0.025 if fy < 0.025 else fy
 
-        xreal, ximag = gabor(image, fx, 0, n_stds=3) # filtros de Gabor no eixo x
-        yreal, yimag = gabor(image, fy, np.pi/2, n_stds=3) # filtros de Gabor no eixo y
-        filtered = np.sqrt(xreal**2 + ximag**2) + np.sqrt(yreal**2 + yimag**2) # imagem filtrada
+        realx, imagx = gabor(image, fx, 0, n_stds=3) # filtros de Gabor no eixo x
+        realy, imagy = gabor(image, fy, np.pi/2, n_stds=3) # filtros de Gabor no eixo y
+        real45, imag45 = gabor(image, np.sqrt(fx**2 + fy**2), np.pi/4, n_stds=3)
+        real135, imag135 = gabor(image, np.sqrt(fx**2 + fy**2), np.pi/4 + np.pi/2, n_stds=3)
+        filtered = (
+            np.sqrt(realx**2 + imagx**2) + 
+            np.sqrt(realy**2 + imagy**2) +
+            np.sqrt(real45**2 + imag45**2) +
+            np.sqrt(real135**2 + imag135**2)
+        )
 
         mask = filtered < threshold_kmeans(filtered, nclusters=self.nclusters, nbins=self.nbins) # segmentação
         mask = nd.binary_opening(mask, iterations=self.opening) # abertura
         mask = nd.binary_dilation(mask, iterations=self.dilation) # dilatação
         Ap = np.sum(mask) # cálculo da área
+        Ap_error = np.sum(mask*filtered) + np.sum(np.logical_not(mask)*filtered) # * 255**2
 
-        return Ap*fx*fy, propagation_of_error(Ap, fx, fy, 0, std_fx, std_fy)
+        return Ap*fx*fy, propagation_of_error(Ap, fx, fy, Ap_error, std_fx, std_fy)
