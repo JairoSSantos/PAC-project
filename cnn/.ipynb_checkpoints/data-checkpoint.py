@@ -4,7 +4,7 @@ import pandas as pd
 from numpy.random import choice
 from PIL import Image
 
-PATH = 'dataset'
+PATH = os.path.join(*os.path.split(__file__)[:-1], 'dataset')
 IMAGES_PATH = os.path.join(PATH, 'images')
 DS = pd.read_csv(os.path.join(PATH, 'dataset.csv'))
 
@@ -19,7 +19,7 @@ def by_id(index, name=False):
         return get(f'{index}.jpg')
 
 def random_images(k=1, names=False):
-    fnames = choice(os.listdir(IMAGES_PATH), k)
+    fnames = choice(os.listdir(IMAGES_PATH), k, replace=False)
     images = tuple(map(get, fnames))
     if names: 
         return zip(images, fnames)

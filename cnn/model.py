@@ -9,7 +9,7 @@ from skimage.feature import canny
 from sklearn.cluster import KMeans
 from dataclasses import dataclass
 
-def fft1d(y:np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def fft1d(y:np.ndarray):
     '''
     Aplica a transformada de fourier em um sinal unidimensional.
 
@@ -24,7 +24,7 @@ def fft1d(y:np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     freqs = np.fft.fftfreq(len(fft), 1)
     return fft, freqs
 
-def fft2d(image:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def fft2d(image:np.ndarray):
     '''
     Aplica a transformada de fourier em uma imagem bidimensional.
 
@@ -40,7 +40,7 @@ def fft2d(image:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     xfreqs = np.fft.fftfreq(fft.shape[1], 1)
     return fft, xfreqs, yfreqs
 
-def peaks_filter(x:np.ndarray, y:np.ndarray, peaks:np.ndarray, k:int=1) -> np.ndarray:
+def peaks_filter(x:np.ndarray, y:np.ndarray, peaks:np.ndarray, k:int=1):
     '''
     Filtrar picos pela altura do sinal.
 
@@ -58,7 +58,7 @@ def peaks_filter(x:np.ndarray, y:np.ndarray, peaks:np.ndarray, k:int=1) -> np.nd
         max_peak = peaks[ypeaks == ypeaks[np.isin(ypeaks, y[x < x[max_peak][0]])].max()]
     return max_peak
 
-def higher_frequency(signal_1d:np.array) -> float:
+def higher_frequency(signal_1d:np.array):
     '''
     Encontrar a frequêcia, diferente de zero, associada à maior amplitude de um sinal unidimensional.
 
@@ -77,7 +77,7 @@ def higher_frequency(signal_1d:np.array) -> float:
     ][0]) # frequência associada ao pico mais intenso diferente de y(x = 0)
     return f
 
-def pixel_scale(image:np.ndarray) -> tuple[tuple[float, float], tuple[float, float]]:
+def pixel_scale(image:np.ndarray):
     '''
     Encontrar a escala milímetro/pixel utilizando transformada de fourier da image.
 
@@ -95,7 +95,7 @@ def pixel_scale(image:np.ndarray) -> tuple[tuple[float, float], tuple[float, flo
     
     return (fx, (Fx.max() - Fx.min())/40), (fy, (Fy.max() - Fy.min())/40)
 
-def find_slope(image:np.ndarray, n_angles=500) -> float:
+def find_slope(image:np.ndarray, n_angles=500):
     '''
     Encontrar inclinação da imagem utilizando transformação de Hough.
 
@@ -112,7 +112,19 @@ def find_slope(image:np.ndarray, n_angles=500) -> float:
     slopes = np.degrees(angles) + 90 # inclinação em relação ao eixo x
     return mode(slopes)[0][0] # angulo com maior ocorrência
 
-def threshold_kmeans(img, nclusters, nbins) -> float:
+def gabor_filter(image, fx, fy):
+    realx, imagx = gabor(image, fx, 0, n_stds=3) # filtros de Gabor na horizontal
+    realy, imagy = gabor(image, fy, np.pi/2, n_stds=3) # filtros de Gabor na vertical
+    real45, imag45 = gabor(image, np.sqrt(fx**2 + fy**2), np.pi/4, n_stds=3) # filtros de Gabor em 45 graus
+    real135, imag135 = gabor(image, np.sqrt(fx**2 + fy**2), np.pi/4 + np.pi/2, n_stds=3) # filtros de Gabor em 135 graus
+    return (
+        np.sqrt(realx**2 + imagx**2) + 
+        np.sqrt(realy**2 + imagy**2) +
+        np.sqrt(real45**2 + imag45**2) +
+        np.sqrt(real135**2 + imag135**2)
+    )
+
+def threshold_kmeans(img, nclusters, nbins):
     data = img.flatten()
     km = KMeans(nclusters)
     cluster_id = km.fit_predict(data.reshape(-1, 1))
@@ -138,7 +150,7 @@ class FourierGabor:
     opening:int = 6 # número de iterações na abertra
     dilation:int = 2 # número de iterações na dilatação
 
-    def predict(self, image:np.ndarray, auto_rotate:bool=False) -> tuple[float, float]:
+    def predict(self, image:np.ndarray, auto_rotate:bool=False):
         if len(image.shape) > 2: 
             image = rgb2gray(image) # transformar imagem para escala de cinza
         if auto_rotate:
@@ -147,17 +159,8 @@ class FourierGabor:
         (fx, std_fx), (fy, std_fy) = pixel_scale(image) # Encontrar a proporção pixel-milímetro
         fx = 0.025 if fx < 0.025 else fx
         fy = 0.025 if fy < 0.025 else fy
-
-        realx, imagx = gabor(image, fx, 0, n_stds=3) # filtros de Gabor no eixo x
-        realy, imagy = gabor(image, fy, np.pi/2, n_stds=3) # filtros de Gabor no eixo y
-        real45, imag45 = gabor(image, np.sqrt(fx**2 + fy**2), np.pi/4, n_stds=3)
-        real135, imag135 = gabor(image, np.sqrt(fx**2 + fy**2), np.pi/4 + np.pi/2, n_stds=3)
-        filtered = (
-            np.sqrt(realx**2 + imagx**2) + 
-            np.sqrt(realy**2 + imagy**2) +
-            np.sqrt(real45**2 + imag45**2) +
-            np.sqrt(real135**2 + imag135**2)
-        )
+        
+        filtered = gabor_filter(image, fx, fy)
 
         mask = filtered < threshold_kmeans(filtered, nclusters=self.nclusters, nbins=self.nbins) # segmentação
         mask = nd.binary_opening(mask, iterations=self.opening) # abertura
