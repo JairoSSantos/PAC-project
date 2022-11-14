@@ -3,7 +3,7 @@ import scipy.ndimage as nd
 from scipy.signal import find_peaks
 from scipy.stats import mode
 from skimage.color import rgb2gray
-from skimage.filters import gabor
+from skimage.filters import gabor, sobel
 from skimage.transform import rotate, hough_line, hough_line_peaks
 from skimage.feature import canny
 from sklearn.cluster import KMeans
@@ -23,22 +23,6 @@ def fft1d(y:np.ndarray):
     fft = np.abs(np.fft.fft(np.fft.ifftshift(y)))
     freqs = np.fft.fftfreq(len(fft), 1)
     return fft, freqs
-
-def fft2d(image:np.ndarray):
-    '''
-    Aplica a transformada de fourier em uma imagem bidimensional.
-
-    Args
-        image: imagem na forma de um array bidimensional (escala de cinza).
-    
-    Returns
-        fft: a imagem no domínio das frequências.
-        ifreqs, jfreqs: frequências associadas à transformada do sinal em cada dimensão.
-    '''
-    fft = np.fft.fft2(np.fft.ifftshift(image))
-    yfreqs = np.fft.fftfreq(fft.shape[0], 1)
-    xfreqs = np.fft.fftfreq(fft.shape[1], 1)
-    return fft, xfreqs, yfreqs
 
 def peaks_filter(x:np.ndarray, y:np.ndarray, peaks:np.ndarray, k:int=1):
     '''
@@ -95,6 +79,25 @@ def pixel_scale(image:np.ndarray):
     
     return (fx, (Fx.max() - Fx.min())/40), (fy, (Fy.max() - Fy.min())/40)
 
+def fft_peak(y, freq):
+    fft = np.abs(np.fft.fft(y))
+    loc = freq > 0.015
+    fft = fft[loc]
+    freq = freq[loc]
+    return freq[fft == fft.max()][0]
+
+def pixel_scale_edge(img):
+    arr = sobel(img)
+    height, width = arr.shape
+    
+    xfreqs = np.fft.fftfreq(width, 1)
+    yfreqs = np.fft.fftfreq(height, 1)
+    
+    Fx = np.apply_along_axis(fft_peak, 1, arr, xfreqs).flat
+    Fy = np.apply_along_axis(fft_peak, 0, arr, yfreqs).flat
+    
+    return mode(Fx).mode[0], mode(Fy).mode[0]
+
 def find_slope(image:np.ndarray, n_angles=500):
     '''
     Encontrar inclinação da imagem utilizando transformação de Hough.
@@ -111,6 +114,9 @@ def find_slope(image:np.ndarray, n_angles=500):
     ))
     slopes = np.degrees(angles) + 90 # inclinação em relação ao eixo x
     return mode(slopes)[0][0] # angulo com maior ocorrência
+
+def align(image):
+    return rotate(image, find_slope(image), mode='reflect')
 
 def gabor_filter(image, fx, fy):
     realx, imagx = gabor(image, fx, 0, n_stds=3) # filtros de Gabor na horizontal
