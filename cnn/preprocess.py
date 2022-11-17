@@ -1,13 +1,16 @@
 import numpy as np
-import scipy.ndimage as nd
 from scipy.signal import find_peaks
 from scipy.stats import mode
 from skimage.color import rgb2gray
 from skimage.filters import gabor, sobel
 from skimage.transform import rotate, hough_line, hough_line_peaks
 from skimage.feature import canny
-from sklearn.cluster import KMeans
-from dataclasses import dataclass
+
+def align(image):
+    '''
+    Alinhar imagem pela transformação de Hough.
+    '''
+    return rotate(image, find_slope(image), mode='reflect')
 
 def fft1d(y:np.ndarray):
     '''
@@ -87,6 +90,15 @@ def fft_peak(y, freq):
     return freq[fft == fft.max()][0]
 
 def pixel_scale_edge(img):
+    '''
+    Encontrar a escala milímetro/pixel utilizando transformada de fourier das bordas da imagem.
+
+    Args
+        image: imagem no formado de um array bidimensional (em escalas de cinza).
+    
+    Return
+        fx, fy: escalas encontradas para x e y.
+    '''
     arr = sobel(img)
     height, width = arr.shape
     
@@ -115,9 +127,6 @@ def find_slope(image:np.ndarray, n_angles=500):
     slopes = np.degrees(angles) + 90 # inclinação em relação ao eixo x
     return mode(slopes)[0][0] # angulo com maior ocorrência
 
-def align(image):
-    return rotate(image, find_slope(image), mode='reflect')
-
 def gabor_filter(image, fx, fy):
     realx, imagx = gabor(image, fx, 0, n_stds=3) # filtros de Gabor na horizontal
     realy, imagy = gabor(image, fy, np.pi/2, n_stds=3) # filtros de Gabor na vertical
@@ -129,49 +138,3 @@ def gabor_filter(image, fx, fy):
         np.sqrt(real45**2 + imag45**2) +
         np.sqrt(real135**2 + imag135**2)
     )
-
-def threshold_kmeans(img, nclusters, nbins):
-    data = img.flatten()
-    km = KMeans(nclusters)
-    cluster_id = km.fit_predict(data.reshape(-1, 1))
-    min_bin = None
-    for ii in np.unique(cluster_id):
-        subset = data[cluster_id == ii]
-        hist, bins = np.histogram(subset, bins=nbins)
-        if min_bin == None or bins.max() < min_bin:
-            min_bin = np.max(subset)
-    return min_bin
-
-def propagation_of_error(Ap, fx, fy, error_Ap, error_fx, error_fy) -> float:
-    return np.sqrt(
-        (fx*fy*error_Ap)**2 +
-        (Ap*fy*error_fx)**2 +
-        (Ap*fx*error_fy)**2
-    )
-
-@dataclass
-class FourierGabor:
-    nclusters:int = 3 # quantidade de núclos de cinza para segmentação
-    nbins:int = 50 # quantidade de bins do histograma de cinza
-    opening:int = 6 # número de iterações na abertra
-    dilation:int = 2 # número de iterações na dilatação
-
-    def predict(self, image:np.ndarray, auto_rotate:bool=False):
-        if len(image.shape) > 2: 
-            image = rgb2gray(image) # transformar imagem para escala de cinza
-        if auto_rotate:
-            image = rotate(image, find_slope(image), mode='reflect') # rotação automática com transformação de Hough
-    
-        (fx, std_fx), (fy, std_fy) = pixel_scale(image) # Encontrar a proporção pixel-milímetro
-        fx = 0.025 if fx < 0.025 else fx
-        fy = 0.025 if fy < 0.025 else fy
-        
-        filtered = gabor_filter(image, fx, fy)
-
-        mask = filtered < threshold_kmeans(filtered, nclusters=self.nclusters, nbins=self.nbins) # segmentação
-        mask = nd.binary_opening(mask, iterations=self.opening) # abertura
-        mask = nd.binary_dilation(mask, iterations=self.dilation) # dilatação
-        Ap = np.sum(mask) # cálculo da área
-        Ap_error = np.sum(mask*filtered) + np.sum(np.logical_not(mask)*filtered) # * 255**2
-
-        return Ap*fx*fy, propagation_of_error(Ap, fx, fy, Ap_error, std_fx, std_fy)
