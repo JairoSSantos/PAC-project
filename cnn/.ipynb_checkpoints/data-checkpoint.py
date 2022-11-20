@@ -1,16 +1,18 @@
 from os import path, listdir
 import numpy as np
-import pandas as pd
+from pandas import read_csv
 from numpy.random import choice
-from PIL import Image
+from PIL.Image import open as image_open
 
 PATH = path.join(*path.split(__file__)[:-1], 'dataset')
 
-def get(filename, filtered=False):
-    return np.array(Image.open(path.join(get_images_path(filtered), filename)))
+def get(filename, filtered=False, function=None):
+    img = np.array(image_open(path.join(get_images_path(filtered), filename)))
+    if function: img = function(img)
+    return img
 
-def get_datainfo(*args, **kwargs):
-    return pd.read_csv(path.join(PATH, 'dataset.csv'), *args, **kwargs)
+def get_dataset(images=False, filtered=False):
+    return read_csv(path.join(PATH, 'dataset.csv'))
 
 def get_images_path(filtered):
     return path.join(PATH, 'filtered' if filtered else 'images')
