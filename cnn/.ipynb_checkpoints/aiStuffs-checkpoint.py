@@ -4,7 +4,6 @@ from tensorflow.math import maximum, sign, reduce_sum
 from tensorflow import custom_gradient
 from tensorflow.keras.callbacks import Callback
 from IPython.display import clear_output
-from numpy.random import randint
 import matplotlib.pyplot as plt
 
 @custom_gradient
@@ -50,14 +49,17 @@ def build_unet(input_shape, u_shape, name='U-Net'):
 class ConvBlock(Layer):
     def __init__(self, filters):
         super(ConvBlock, self).__init__()
-        self.sublayers = [
+        self.convs = [
+            Conv2D(filters, 3, padding='same'),
+            BatchNormalization(),
+            Activation('relu'),
             Conv2D(filters, 3, padding='same'),
             BatchNormalization(),
             Activation('relu')
-        ]*2
+        ]
     
     def call(self, x):
-        for layer in self.sublayers:
+        for layer in self.convs:
             x = layer(x)
         return x
 
@@ -84,50 +86,40 @@ class Decoder(Layer):
         return self.conv_block(self.concat([self.encoder.skip, self.conv_transpose(x)]))
 
 class UNetAreaDetection(Model):
-    def __init__(self, input_shape, filters, **kwargs):
+    def __init__(self, filters, activation=heaviside, **kwargs):
         super(UNetAreaDetection, self).__init__(**kwargs)
-        
-        contracting = [Encoder(f) for f in filters[:-1]]
-        expanding = [Decoder(f, skip_encoder) for f, skip_encoder in zip(filters[:-1][::-1], contracting[::-1])]
+        self.filters = filters
+        self.activation = activation
+
+        contracting = []
+        expanding = []
+        for f in self.filters[:-1]:
+            contracting.append(Encoder(f))
+            expanding.insert(0, Decoder(f, contracting[-1]))
         
         self.net_layers = (
             #[Input(input_shape)] +
             contracting + # contração
-            [ConvBlock(filters[-1])] + # conexão
+            [ConvBlock(self.filters[-1])] + # conexão
             expanding + # expansão
-            [Conv2D(1, 1, padding='same', activation=heaviside)] # ativação
+            [Conv2D(1, 1, padding='same', activation=self.activation)] # ativação
         )
-        
-        self.last_outputs = None
     
     def call(self, x, training):
         for layer in self.net_layers:
             x = layer(x)
-        self.last_output = x
-        return reduce_sum(x, axis=[1, 2])
+        return reduce_sum(x, axis=[1, 2]) if training else x
 
 class TrainingPlot(Callback):
-    def __init__(self, images, figsize=(10, 4)):
-        super(TrainingPlot, self).__init__()
-        self.images = images
-        self.figsize = figsize
+    def __init__(self, update):
+        super(Callback, self).__init__()
+        self.update = update
+        self.logs = {}
     
-    def on_train_begin(self, *args, **kwargs):
-        self.logs = {k:[] for k in kwargs['logs'].keys()}
-    
-    def on_epoch_end(self, *args, **kwargs):
+    def on_epoch_end(self, epoch, logs={}):
+        for k, v in logs.items():
+            try: self.logs[k].append(v)
+            except KeyError: self.logs[k] = [v]
         clear_output(wait=True)
-            
-        fig, axs = plt.subplots(1, 2, figsize=self.figsize)
-        
-        for k, v in kwargs['logs'].keys():
-            self.logs[k].append(v)
-            axs[0].plot(self.logs[k], label=k)
-        
-        i = randint(len(images))
-        pixel_area, mask = self.model.predict(images[i-1:i])
-        axs[1].imshow(mask[0, :, :, 0])
-            
-        axs[0].legend()
-        axs[1].set_title(pixel_area)
+        self.update(self.logs, self.model)
         plt.show()

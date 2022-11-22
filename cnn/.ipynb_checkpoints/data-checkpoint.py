@@ -6,28 +6,23 @@ from PIL.Image import open as image_open
 
 PATH = path.join(*path.split(__file__)[:-1], 'dataset')
 
-def get(filename, filtered=False, function=None):
-    img = np.array(image_open(path.join(get_images_path(filtered), filename)))
-    if function: img = function(img)
+def get(filename, gabor=False, apply=None):
+    img = np.array(image_open(path.join(get_images_path(gabor), filename)))
+    if apply: img = apply(img)
     return img
 
-def get_dataset(images=False, filtered=False):
+def get_dataset():
     return read_csv(path.join(PATH, 'dataset.csv'))
 
-def get_images_path(filtered):
-    return path.join(PATH, 'filtered' if filtered else 'images')
+def get_images_path(gabor):
+    return path.join(PATH, 'gabor' if gabor else 'images')
 
-def by_id(index, name=False):
-    filename = f'{index}.jpg'
-    if name:
-        return get(filename), filename
-    else:
-        return get(f'{index}.jpg')
+def by_id(index, filename=False):
+    name = f'{index}.jpg'
+    img = get(name)
+    return img, name if filename else img
 
-def random_images(k=1, names=False, filtered=False):
-    fnames = choice(listdir(get_images_path(filtered)), k, replace=False)
+def random_images(k=1, names=False, gabor=False):
+    fnames = choice(listdir(get_images_path(gabor)), k, replace=False)
     images = tuple(map(get, fnames))
-    if names: 
-        return zip(images, fnames)
-    else: 
-        return images
+    return zip(images, fnames) if names else images

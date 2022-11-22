@@ -6,6 +6,18 @@ from skimage.filters import gabor, sobel
 from skimage.transform import rotate, hough_line, hough_line_peaks
 from skimage.feature import canny
 
+def norm(arr, vmin=0, vmax=1):
+    return vmin + (arr - arr.min())*(vmax - vmin)/(arr.max() - arr.min())
+
+def rotation_augmentation(image):
+    yflip = image[::-1]
+    xflip = image[:, ::-1]
+    aug = []
+    for angle in np.arange(0, 360, 90):
+        aug.append(rotate(yflip, angle))
+        aug.append(rotate(xflip, angle))
+    return aug
+
 def align(image):
     '''
     Alinhar imagem pela transformação de Hough.
