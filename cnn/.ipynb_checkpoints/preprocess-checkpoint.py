@@ -40,6 +40,9 @@ def find_slope(image:np.ndarray, n_angles=500):
     slopes = np.degrees(angles) + 90 # inclinação em relação ao eixo x
     return mode(slopes)[0][0] # angulo com maior ocorrência
 
+def autocorr(x, mode='full'):
+    return np.correlate(x, x, mode=mode)
+
 def find_scale(img):
     freq = np.fft.fftfreq(len(img), 1)
     loc = (freq > 0)

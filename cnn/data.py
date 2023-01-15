@@ -1,29 +1,196 @@
-from os import path, listdir
+import os
+import glob
 import numpy as np
-from pandas import read_csv
-from numpy.random import choice
-from PIL.Image import open as image_open
+import pandas as pd
+from scipy.signal import find_peaks
+from scipy.stats import mode
 from skimage.color import rgb2gray
+from skimage.filters import farid_v, farid_h
+from skimage.transform import rotate, hough_line, hough_line_peaks
+from skimage.feature import canny
+from skimage.io import imread, imread_collection
 
-PATH = path.join(*path.split(__file__)[:-1], 'dataset')
+DATASET_PATH = os.path.join(*os.path.split(__file__)[:-1], 'dataset')
+TRAIN_PATH = os.path.join(DATASET_PATH, 'train')
+TEST_PATH = os.path.join(DATASET_PATH, 'test')
 
-def get(filename, root='', gray=True):
-    img = np.array(image_open(path.join(root, filename)))
-    if gray and len(img.shape) > 2: img = rgb2gray(img)
-    return img
+def mapper(func):
+    '''
+    Decorator para aplicar funções em iteráveis utilizando a função nativa map, retornando uma lista (obs: todos os valores None serão filtrados).
+    '''
+    def wrapper(x, *args, **kwargs):
+        return list(filter(lambda x: type(x) != 'NoneType', map(lambda x: func(x, *args, **kwargs), x)))
+    return wrapper
 
-def get_dataset():
-    return read_csv(path.join(PATH, 'dataset.csv'))
+def align(image) -> np.ndarray:
+    '''
+    Alinhar imagem pela transformação de Hough.
+    '''
+    return rotate(image, find_slope(image), mode='reflect')
 
-def get_images_path():
-    return path.join(PATH, 'images')
+def autocorr(x:np.ndarray, mode:str='full') -> np.ndarray:
+    '''
+    Autocorrelação de um sinal.
 
-def by_id(index, filename=False):
-    name = f'{index}.jpg'
-    img = get(name)
-    return img, name if filename else img
+    Args:
+        x: Sinal no qual será feita a autocorrelação.
+        mode (opcional): Tipo de autocorrelação (default: 'full').
+    
+    Return:
+        C_xx: Autocorrelação do sinal x.
+    '''
+    C_xx = np.correlate(x, x, mode=mode)
+    return C_xx
 
-def random_images(k=1, names=False):
-    fnames = choice(listdir(get_images_path()), k, replace=False)
-    images = tuple(map(get, fnames))
-    return zip(images, fnames) if names else images
+def find_scale(img:np.ndarray) -> float:
+    '''
+    Encontrar escala píxel-milimetro.
+
+    Args:
+        img: Imagem em escala de cinza no formato de um array bidimentional.
+    
+    Return:
+        f: Quantidade de milímetros por píxel
+    '''
+    freq = np.fft.fftfreq(len(img), 1)
+    loc = (freq > 0)
+    auto_fft = lambda x: norm(np.abs(np.fft.fft(autocorr(x, 'same')))[loc], vmin=0, vmax=1)
+    far = np.concatenate([farid_v(img), farid_h(img).T])
+    Y = np.apply_along_axis(auto_fft, 0, far.T).mean(axis=1)
+    P = find_peaks(Y, height=0.5)[0]
+    f = freq[loc][P].min()
+    return f
+
+def find_slope(image:np.ndarray, n_angles=500) -> float:
+    '''
+    Encontrar inclinação da imagem utilizando transformação de Hough.
+
+    Args
+        image: imagem no formado de um array bidimensional (em escalas de cinza).
+    
+    Return
+        angle: inclinação da imagem (em graus).
+    '''
+    _, angles, _ = hough_line_peaks(*hough_line(
+        canny(image), # bordas da imagem
+        np.linspace(-np.pi/2, np.pi/2, n_angles) # angulos
+    ))
+    slopes = np.degrees(angles) + 90 # inclinação em relação ao eixo x
+    angle = mode(slopes)[0][0] # angulo com maior ocorrência
+    return angle
+
+def get_info() -> pd.DataFrame:
+    '''
+    Pegar informações sobre as amostras do dataset.
+    '''
+    return pd.read_csv(os.path.join(DATASET, 'info.csv'))
+
+def norm(x:np.ndarray, vmin:float=0, vmax:float=1) -> np.ndarray:
+    '''
+    Normalizar valores de um array "x" para determinados limites (vmin, vmax).
+
+    Args:
+        x: Array n-dimensional com os valores que serão normalizados.
+        vmin (opcional): Limite inferior (default: 0).
+        vmax (opcional): Limite superior (default: 1).
+    
+    Return:
+        y: Array normalizado.
+    '''
+    y = vmin + (x - x.min())/x.ptp() * (vmax - vmin)
+    return y
+
+@mapper
+def root_area_from_filepath(filepath) -> tuple|None:
+    '''
+    Extrair diretório e area de uma imagem (.jpg) no dataset.
+    '''
+    root, filename = os.path.split(filepath)
+    area, ext = os.path.splitext(filename)
+    return (root, area) if ext == '.jpg' else None
+
+def split_validation_data(p:float, shuffle:bool=True, seed=None, verbose:bool=True) -> None:
+    '''
+    Separar dados de validação: No diretório DATASET_PATH, os arquivos
+
+    Args:
+        p: Fração das imagens que serão usadas para validação, 0 <= p <= 1.
+        shuffle (opcional): Se True, os arquivos serão escolhidos aleatoriamente.
+        seed (opcional): Seed usada para embaralhar os arquivos (obs: esta informação só será utilizada caso shuffle=True).
+        verbose (opcional): Se True, informações sobre a separação dos dados serão exibidas ao final do procedimento.
+    '''
+    all_files = glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True) # coletar o caminho até todos os arquivos no dataset
+    files = root_area_from_filepath(all_files) # separar os diretórios (root) das amostras (imagem e mascara) nomeadas com as respactivas areas
+    n_files = len(files) # quantidade de amostras
+    split_threshold = int(p*n_files) # quantidade de amostras que serão destinados à validação
+
+    if shuffle: np.random.default_rng(seed).shuffle(files) # embaralhe as amostras, se shuffle for verdadeiro
+
+    for i, (root, area) in enumerate(files): # enumere as informações das amostras
+        img_name = area + '.jpg' # nome da imagem
+        lbl_name = area + '.tif' # noma da mascara
+        dst = TEST_PATH if i < split_threshold else TRAIN_PATH # novo destino dos arquivos
+        try: os.rename(os.path.join(root, lbl_name), os.path.join(dst, lbl_name)) # para a mascara: caminho antigo -> novo caminho
+        except FileNotFoundError: raise FileNotFoundError(f'A máscara {lbl_name} não foi encontrada, certifique-se que a imagem e sua máscara encontram-se no mesmo diretório.')
+        else: os.rename(os.path.join(root, img_name), os.path.join(dst, img_name)) # para a imagem: caminho antigo -> novo caminho
+
+    if verbose:
+        tr = n_files - split_threshold
+        print((
+            f'Foram encontradas {n_files} amostras, totalizando {2*n_files} arquivos. '
+            f'Dados para treinamento: {tr} amostras ({tr/n_files*100:.2f}%). '
+            f'Dados para validação: {split_threshold} amostras ({split_threshold/n_files*100:.2f}%).'
+        ))
+
+def load_dataset(grayscale:bool=True, as_tensor:bool=False) -> tuple:
+    '''
+    Carregar conjunto de dados.
+
+    Args:
+        grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
+        as_tensor (optional): Se True, os dados serão retornados no formato de tensores com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
+    
+    Return:
+        (x_train, y_train), (x_test, y_test): Conjunto de dados.
+    '''
+    x_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()
+    y_train = (imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.tif'))).concatenate()/255).astype(int)
+    x_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()
+    y_test = (imread_collection(glob.glob(os.path.join(TEST_PATH, '*.tif'))).concatenate()/255).astype(int)
+    if grayscale:
+        to_gray = mapper(rgb2gray)
+        x_train, x_test = to_gray(x_train), to_gray(x_test)
+    if as_tensor:
+        return ((tf.convert_to_tensor(x_train[:, :, :, np.newaxis]), 
+                 tf.convert_to_tensor(y_train[:, :, :, np.newaxis])),
+                (tf.convert_to_tensor(x_test[:, :, :, np.newaxis]), 
+                 tf.convert_to_tensor(y_test[:, :, :, np.newaxis])))
+    else:
+        return (x_train, y_train), (x_test, y_test)
+
+@mapper
+def get_sample_info(filepath:str) -> tuple:
+    '''
+    Coletar informações sobre a amostra indicada pelo caminho filepath.
+    '''
+    root, filename = os.path.split(filepath)
+    area, _ = os.path.splitext(filename)
+    train = (os.path.split(root)[-1] == 'train')
+    im = rgb2gray(imread(filepath))
+    f, slope = find_scale(im), find_slope(im)
+    label_pixel_area = np.sum(imread(os.path.join(root, area + '.tif'))/255)
+    return float(area), train, f, slope, label_pixel_area
+
+def update_info() -> None:
+    '''
+    Atualizar tabela de informações sobre o dataset.
+    '''
+    pd.DataFrame(
+        get_sample_info(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))) +
+        get_sample_info(glob.glob(os.path.join(TEST_PATH, '*.jpg'))),
+        columns=['area', 'train', 'freq', 'slope', 'label_pixel_area']
+    ).sort_values('area').to_csv(os.path.join(DATASET_PATH, 'info.csv'), index=False)
+
+if __name__ == '__main__':
+    #split_validation_data(0.26, seed=123)
+    update_info()
