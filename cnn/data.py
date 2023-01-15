@@ -18,17 +18,18 @@ def mapper(func):
     '''
     Decorator para aplicar funções em iteráveis utilizando a função nativa map, retornando uma lista (obs: todos os valores None serão filtrados).
     '''
+    NoneType = type(None)
     def wrapper(x, *args, **kwargs):
-        return list(filter(lambda x: type(x) != 'NoneType', map(lambda x: func(x, *args, **kwargs), x)))
+        return list(filter(lambda x: type(x) != NoneType, map(lambda x: func(x, *args, **kwargs), x)))
     return wrapper
 
-def align(image) -> np.ndarray:
+def align(image):
     '''
     Alinhar imagem pela transformação de Hough.
     '''
     return rotate(image, find_slope(image), mode='reflect')
 
-def autocorr(x:np.ndarray, mode:str='full') -> np.ndarray:
+def autocorr(x:np.ndarray, mode:str='full'):
     '''
     Autocorrelação de um sinal.
 
@@ -42,7 +43,7 @@ def autocorr(x:np.ndarray, mode:str='full') -> np.ndarray:
     C_xx = np.correlate(x, x, mode=mode)
     return C_xx
 
-def find_scale(img:np.ndarray) -> float:
+def find_scale(img:np.ndarray):
     '''
     Encontrar escala píxel-milimetro.
 
@@ -61,7 +62,7 @@ def find_scale(img:np.ndarray) -> float:
     f = freq[loc][P].min()
     return f
 
-def find_slope(image:np.ndarray, n_angles=500) -> float:
+def find_slope(image:np.ndarray, n_angles=500):
     '''
     Encontrar inclinação da imagem utilizando transformação de Hough.
 
@@ -79,13 +80,63 @@ def find_slope(image:np.ndarray, n_angles=500) -> float:
     angle = mode(slopes)[0][0] # angulo com maior ocorrência
     return angle
 
-def get_info() -> pd.DataFrame:
+def get_info():
     '''
     Pegar informações sobre as amostras do dataset.
     '''
-    return pd.read_csv(os.path.join(DATASET, 'info.csv'))
+    return pd.read_csv(os.path.join(DATASET_PATH, 'info.csv'))
 
-def norm(x:np.ndarray, vmin:float=0, vmax:float=1) -> np.ndarray:
+@mapper
+def get_sample_info(filepath:str):
+    '''
+    Coletar informações sobre a amostra indicada pelo caminho filepath.
+    '''
+    root, filename = os.path.split(filepath)
+    area, _ = os.path.splitext(filename)
+    train = (os.path.split(root)[-1] == 'train')
+    im = rgb2gray(imread(filepath))
+    f, slope = find_scale(im), find_slope(im)
+    label_pixel_area = np.sum(imread(os.path.join(root, area + '.tif'))/255)
+    return float(area), train, f, slope, label_pixel_area
+
+def load_random(n=1, seed=None, grayscale=True):
+    files = root_area_from_filepath(glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True))
+    images = []
+    for i in np.random.default_rng(seed).integers(0, len(files), n):
+        root, area = files[i]
+        img = imread(os.path.join(root, area + '.jpg'))
+        if grayscale: img = rgb2gray(img)
+        lbl = (imread(os.path.join(root, area + '.tif'))/255).astype(int)
+        images.append((img, lbl))
+    return images
+
+def load_dataset(grayscale:bool=True, as_tensor:bool=False):
+    '''
+    Carregar conjunto de dados para treinamento.
+
+    Args:
+        grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
+        as_tensor (optional): Se True, os dados serão retornados no formato de tensores com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
+    
+    Return:
+        (x_train, y_train), (x_test, y_test): Conjunto de dados.
+    '''
+    x_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()
+    y_train = (imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.tif'))).concatenate()/255).astype(int)
+    x_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()
+    y_test = (imread_collection(glob.glob(os.path.join(TEST_PATH, '*.tif'))).concatenate()/255).astype(int)
+    if grayscale:
+        to_gray = mapper(rgb2gray)
+        x_train, x_test = to_gray(x_train), to_gray(x_test)
+    if as_tensor:
+        return ((tf.convert_to_tensor(x_train[:, :, :, np.newaxis]), 
+                 tf.convert_to_tensor(y_train[:, :, :, np.newaxis])),
+                (tf.convert_to_tensor(x_test[:, :, :, np.newaxis]), 
+                 tf.convert_to_tensor(y_test[:, :, :, np.newaxis])))
+    else:
+        return (x_train, y_train), (x_test, y_test)
+
+def norm(x:np.ndarray, vmin:float=0, vmax:float=1):
     '''
     Normalizar valores de um array "x" para determinados limites (vmin, vmax).
 
@@ -101,7 +152,7 @@ def norm(x:np.ndarray, vmin:float=0, vmax:float=1) -> np.ndarray:
     return y
 
 @mapper
-def root_area_from_filepath(filepath) -> tuple|None:
+def root_area_from_filepath(filepath):
     '''
     Extrair diretório e area de uma imagem (.jpg) no dataset.
     '''
@@ -109,7 +160,7 @@ def root_area_from_filepath(filepath) -> tuple|None:
     area, ext = os.path.splitext(filename)
     return (root, area) if ext == '.jpg' else None
 
-def split_validation_data(p:float, shuffle:bool=True, seed=None, verbose:bool=True) -> None:
+def split_validation_data(p:float, shuffle:bool=True, seed=None, verbose:bool=True):
     '''
     Separar dados de validação: No diretório DATASET_PATH, os arquivos
 
@@ -142,46 +193,7 @@ def split_validation_data(p:float, shuffle:bool=True, seed=None, verbose:bool=Tr
             f'Dados para validação: {split_threshold} amostras ({split_threshold/n_files*100:.2f}%).'
         ))
 
-def load_dataset(grayscale:bool=True, as_tensor:bool=False) -> tuple:
-    '''
-    Carregar conjunto de dados.
-
-    Args:
-        grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
-        as_tensor (optional): Se True, os dados serão retornados no formato de tensores com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
-    
-    Return:
-        (x_train, y_train), (x_test, y_test): Conjunto de dados.
-    '''
-    x_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()
-    y_train = (imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.tif'))).concatenate()/255).astype(int)
-    x_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()
-    y_test = (imread_collection(glob.glob(os.path.join(TEST_PATH, '*.tif'))).concatenate()/255).astype(int)
-    if grayscale:
-        to_gray = mapper(rgb2gray)
-        x_train, x_test = to_gray(x_train), to_gray(x_test)
-    if as_tensor:
-        return ((tf.convert_to_tensor(x_train[:, :, :, np.newaxis]), 
-                 tf.convert_to_tensor(y_train[:, :, :, np.newaxis])),
-                (tf.convert_to_tensor(x_test[:, :, :, np.newaxis]), 
-                 tf.convert_to_tensor(y_test[:, :, :, np.newaxis])))
-    else:
-        return (x_train, y_train), (x_test, y_test)
-
-@mapper
-def get_sample_info(filepath:str) -> tuple:
-    '''
-    Coletar informações sobre a amostra indicada pelo caminho filepath.
-    '''
-    root, filename = os.path.split(filepath)
-    area, _ = os.path.splitext(filename)
-    train = (os.path.split(root)[-1] == 'train')
-    im = rgb2gray(imread(filepath))
-    f, slope = find_scale(im), find_slope(im)
-    label_pixel_area = np.sum(imread(os.path.join(root, area + '.tif'))/255)
-    return float(area), train, f, slope, label_pixel_area
-
-def update_info() -> None:
+def update_info():
     '''
     Atualizar tabela de informações sobre o dataset.
     '''
