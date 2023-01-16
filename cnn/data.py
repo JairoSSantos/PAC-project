@@ -116,7 +116,7 @@ def load_dataset(grayscale:bool=True, as_tensor:bool=False):
 
     Args:
         grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
-        as_tensor (optional): Se True, os dados serão retornados no formato de tensores com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
+        as_tensor (optional): Se True, os dados serão retornados no formato de arrays com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
     
     Return:
         (x_train, y_train), (x_test, y_test): Conjunto de dados.
@@ -127,12 +127,12 @@ def load_dataset(grayscale:bool=True, as_tensor:bool=False):
     y_test = (imread_collection(glob.glob(os.path.join(TEST_PATH, '*.tif'))).concatenate()/255).astype(int)
     if grayscale:
         to_gray = mapper(rgb2gray)
-        x_train, x_test = to_gray(x_train), to_gray(x_test)
+        x_train, x_test = np.stack(to_gray(x_train)), np.stack(to_gray(x_test))
     if as_tensor:
-        return ((tf.convert_to_tensor(x_train[:, :, :, np.newaxis]), 
-                 tf.convert_to_tensor(y_train[:, :, :, np.newaxis])),
-                (tf.convert_to_tensor(x_test[:, :, :, np.newaxis]), 
-                 tf.convert_to_tensor(y_test[:, :, :, np.newaxis])))
+        return ((x_train[:, :, :, np.newaxis],
+                 y_train[:, :, :, np.newaxis]),
+                (x_test[:, :, :, np.newaxis],
+                 y_test[:, :, :, np.newaxis]))
     else:
         return (x_train, y_train), (x_test, y_test)
 
