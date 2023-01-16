@@ -2,7 +2,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras import Input, Model, layers
-from tensorflow.keras.metrics import mean_absolute_percentage_error as mape
 from tensorflow.keras.callbacks import Callback
 from IPython.display import clear_output
 from skimage.color import label2rgb
@@ -80,6 +79,9 @@ def build_unet(input_shape:tuple, filters:tuple, name:str, activation:str='sigmo
     outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
     return Model(inputs=inputs, outputs=outputs, name=name)
 
+def mape(y_pred, y_true):
+    return np.mean(np.abs(y_true - y_pred)/y_true * 100)
+
 class UnetTrainingPlot(Callback):
     '''
     Callback para plotar a evolução da rede neural no treinamento.
@@ -95,7 +97,8 @@ class UnetTrainingPlot(Callback):
         self.y_rel_area_train = self.y_train.sum(axis=(1, 2))/self.area_total
         self.y_rel_area_test = self.y_test.sum(axis=(1, 2))/self.area_total
 
-        ymin, ymax = np.concatenate((self.y_rel_area_test, self.y_rel_area_test)).min()
+        Y_rel_area = np.concatenate((self.y_rel_area_train, self.y_rel_area_test))
+        ymin, ymax = Y_rel_area.min(), Y_rel_area.max()
         dy = 0.2*(ymax - ymin)
         self.t_min, self.t_max = ymin - dy, ymax + dy
         self.t = np.linspace(self.t_min, self.t_max, 50)
@@ -109,9 +112,9 @@ class UnetTrainingPlot(Callback):
         
         if epoch % self.period == 0:
             pred_train = (self.unet.predict(self.x_train, verbose=0) > 0.5).astype(int)
-            pred_train_rel_area = pred.sum(axis=(1, 2))/self.area_total
+            pred_train_rel_area = pred_train.sum(axis=(1, 2))/self.area_total
             pred_test = (self.unet.predict(self.x_test, verbose=0) > 0.5).astype(int)
-            pred_test_rel_area = pred.sum(axis=(1, 2))/self.area_total
+            pred_test_rel_area = pred_test.sum(axis=(1, 2))/self.area_total
 
             clear_output(wait=True)
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 4))
@@ -125,10 +128,11 @@ class UnetTrainingPlot(Callback):
             ax2.imshow(label2rgb(pred_test[i, :, :, 0], self.x_test[i, :, :, 0], bg_label=0))
 
             ax3.plot(self.y_rel_area_train, pred_train_rel_area, 'bo', alpha=0.5, 
-                label=r'train $\Delta$% = {.:2f}'.format(np.round(mape(self.y_rel_area_train, pred_train_rel_area), 2)))
+                label=r'train $\Delta$% = {}'.format(np.round(mape(self.y_rel_area_train, pred_train_rel_area), 2)))
             ax3.plot(self.y_rel_area_test, pred_test_rel_area, 'ro', alpha=0.5,
-                label=r'val $\Delta$% = {.:2f}'.format(np.round(mape(self.y_rel_area_test, pred_test_rel_area), 2)))
+                label=r'val $\Delta$% = {}'.format(np.round(mape(self.y_rel_area_test, pred_test_rel_area), 2)))
             ax3.plot(self.t, self.t, 'k--')
-            ax3.set_ylim(self.t_min(), self.t_max())
+            ax3.set_ylim(self.t_min, self.t_max)
             ax3.set_aspect('equal')
+            ax3.legend()
             plt.show()
