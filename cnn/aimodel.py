@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from tensorflow.keras import Input, Model, layers
 from tensorflow.keras.callbacks import Callback
@@ -134,7 +135,7 @@ def load_unet(name:str):
     Return:
         U-Net já compilada.
     '''
-    return load_model(os.join(SAVE_PATH, name, f'{name}.h5'))
+    return load_model(os.path.join(SAVE_PATH, name, f'{name}.h5'))
 
 class UNetTrainingPlot(Callback):
     '''
@@ -157,7 +158,11 @@ class UNetTrainingPlot(Callback):
         self.t_min, self.t_max = ymin - dy, ymax + dy
         self.t = np.linspace(self.t_min, self.t_max, 50)
 
-        self.logs = {}
+        self.logs = {'epoch':[], 'loss':[], 'val_loss':[]}
+        try:
+            logs_path = os.path.join(SAVE_PATH, unet.name, 'logs.csv')
+            self.logs = pd.read_csv(logs_path).to_dict('list')
+        except FileNotFoundError: pass
     
     def update_logs(self, logs):
         '''
@@ -177,22 +182,23 @@ class UNetTrainingPlot(Callback):
         pred_test_rel_area = pred_test.sum(axis=(1, 2))/self.area_total
 
         clear_output(wait=True)
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4))
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(17, 4))
 
         ax1.plot(self.logs['loss'], label='loss')
         ax1.plot(self.logs['val_loss'], label='val_loss')
         ax1.semilogy()
         ax1.legend()
-        ax1.set_ylim(bottom=0)
+        #ax1.set_ylim(bottom=0)
 
         i = np.random.randint(0, self.x_test.shape[0]-1)
         ax2.imshow(label2rgb(pred_test[i, :, :, 0], self.x_test[i, :, :, 0], bg_label=0))
+        ax2.grid(False)
 
-        ax3.plot(self.y_rel_area_train, pred_train_rel_area, 'bo', alpha=0.5, 
-            label=r'MAPE(train) = {}%'.format(np.round(mape(self.y_rel_area_train, pred_train_rel_area), 2)))
-        ax3.plot(self.y_rel_area_test, pred_test_rel_area, 'ro', alpha=0.5,
-            label=r'MAPE(val) = {}%'.format(np.round(mape(self.y_rel_area_test, pred_test_rel_area), 2)))
-        ax3.plot(self.t, self.t, 'k--')
+        ax3.plot(self.y_rel_area_train, pred_train_rel_area, 'o', alpha=0.5, 
+            label=r'MAPE(train) = {}%'.format(np.round(mape(pred_train_rel_area, self.y_rel_area_train), 2)))
+        ax3.plot(self.y_rel_area_test, pred_test_rel_area, 'o', alpha=0.5,
+            label=r'MAPE(val) = {}%'.format(np.round(mape(pred_test_rel_area, self.y_rel_area_test), 2)))
+        ax3.plot(self.t, self.t, 'k--', label=r'$x=y$')
         ax3.set_xlim(self.t_min, self.t_max)
         ax3.set_ylim(self.t_min, self.t_max)
         ax3.set_aspect('equal')
@@ -216,16 +222,19 @@ class UNetCheckpoint(Callback):
 
         self.unet = unet
         self.path = os.path.join(SAVE_PATH, unet.name)
-        self.model_path = os.join(self.path, f'{self.unet.name}.h5')
+        self.model_path = os.path.join(self.path, f'{self.unet.name}.h5')
         self.weights_path = os.path.join(self.path, 'weights')
-        self.logs_path = os.join(self.path, 'logs.csv')
+        self.logs_path = os.path.join(self.path, 'logs.csv')
         self.logs = {'epoch':[], 'loss':[], 'val_loss':[]}
     
-    def on_train_begin(logs):
-        os.mkdir(self.path)
-        os.mkdir(self.weights_path)
-        try: self.initial_epoch = pd.read_csv(self.logs_path).epoch.max()
+    def on_train_begin(self, logs=None):
+        try:
+            os.mkdir(self.path)
+            os.mkdir(self.weights_path)
+        except FileExistsError: pass
+        try: self.logs = pd.read_csv(self.logs_path).to_dict('list')
         except FileNotFoundError: self.initial_epoch = 0
+        else: self.initial_epoch = max(self.logs['epoch'])
 
     def on_epoch_end(self, epoch, logs={}):
         epoch += self.initial_epoch
