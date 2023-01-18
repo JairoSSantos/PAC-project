@@ -5,24 +5,15 @@ import matplotlib.pyplot as plt
 from tensorflow.keras import Input, Model, layers
 from tensorflow.keras.callbacks import Callback
 from tensorflow.keras.models import load_model
+from tensorflow.keras.metrics import mape
 from IPython.display import clear_output
 from skimage.color import label2rgb
 from warnings import warn
 
 SAVE_PATH = os.path.join(*os.path.split(__file__)[:-1], 'saves')
 
-def mape(y_pred:np.ndarray, y_true:np.ndarray):
-    '''
-    Mean absolute percentage error (erro percentual médio).
-
-    Args:
-        y_pred: Valor da predição.
-        y_true: Valor verdadeiro.
-    
-    Return:
-        erro: mean(|y_true - y_pred|/y_true * 100)
-    '''
-    return np.mean(np.abs(y_true - y_pred)/y_true * 100)
+def mape_metric(y_true, y_pred):
+    return mape(y_true.sum(axis=(1, 2))[:, 0], (y_pred > 0.5).sum(axis=(1, 2))[:, 0])
 
 def conv_block(x, filters:int):
     '''
@@ -176,31 +167,37 @@ class UNetTrainingPlot(Callback):
         '''
         Plotar métricas.
         '''
-        pred_train = (self.unet.predict(self.x_train, verbose=0) > 0.5).astype(int)
-        pred_train_rel_area = pred_train.sum(axis=(1, 2))/self.area_total
-        pred_test = (self.unet.predict(self.x_test, verbose=0) > 0.5).astype(int)
-        pred_test_rel_area = pred_test.sum(axis=(1, 2))/self.area_total
+        pred_train = self.unet.predict(self.x_train, verbose=0)
+        pred_train_rel_area = (pred_train > 0.5).sum(axis=(1, 2))/self.area_total
+        pred_test = self.unet.predict(self.x_test, verbose=0)
+        pred_test_rel_area = (pred_test > 0.5).sum(axis=(1, 2))/self.area_total
 
         clear_output(wait=True)
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(17, 4))
 
         ax1.plot(self.logs['loss'], label='loss')
         ax1.plot(self.logs['val_loss'], label='val_loss')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Binary cross-entropy (log)')
         ax1.semilogy()
         ax1.legend()
         #ax1.set_ylim(bottom=0)
 
         i = np.random.randint(0, self.x_test.shape[0]-1)
-        ax2.imshow(label2rgb(pred_test[i, :, :, 0], self.x_test[i, :, :, 0], bg_label=0))
+        ax2.imshow(label2rgb(pred_test[i, :, :, 0] > 0.5, self.x_test[i, :, :, 0], bg_label=0))
+        CS = ax2.contour(pred_test[i, :, :, 0], cmap='plasma')
+        ax2.clabel(CS, inline=True, fontsize=10)
         ax2.grid(False)
 
         ax3.plot(self.y_rel_area_train, pred_train_rel_area, 'o', alpha=0.5, 
-            label=r'MAPE(train) = {}%'.format(np.round(mape(pred_train_rel_area, self.y_rel_area_train), 2)))
+            label=f'MAPE(train) = {mape(self.y_rel_area_train, pred_train_rel_area).numpy():.2f}%')
         ax3.plot(self.y_rel_area_test, pred_test_rel_area, 'o', alpha=0.5,
-            label=r'MAPE(val) = {}%'.format(np.round(mape(pred_test_rel_area, self.y_rel_area_test), 2)))
+            label=f'MAPE(val) = {mape(self.y_rel_area_test, pred_test_rel_area).numpy():.2f}%')
         ax3.plot(self.t, self.t, 'k--', label=r'$x=y$')
         ax3.set_xlim(self.t_min, self.t_max)
         ax3.set_ylim(self.t_min, self.t_max)
+        ax3.set_xlabel('Área relativa verdadeira')
+        ax3.set_ylabel('Área relativa encontrada (threshold: 0.5)')
         ax3.set_aspect('equal')
         ax3.legend()
         plt.show()

@@ -110,13 +110,31 @@ def load_random(n=1, seed=None, grayscale=True):
         images.append((img, lbl))
     return images
 
-def load_dataset(grayscale:bool=True, as_tensor:bool=False):
+def flipping_augmentation(collection):
+    '''
+    Aumento os dados espelhando as imagens.
+
+    Args:
+        collection: Coleção de imagens.
+    
+    Return:
+        A coleção de imagens espelhada em quatro direções (esquerda-direita, cima-baixo).
+    '''
+    return np.concatenate((
+            collection,
+            collection[:, ::-1],
+            collection[:, :, ::-1],
+            collection[:, ::-1, ::-1]
+    ))
+
+def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation=True):
     '''
     Carregar conjunto de dados para treinamento.
 
     Args:
         grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
-        as_tensor (optional): Se True, os dados serão retornados no formato de arrays com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
+        as_tensor (opcional): Se True, os dados serão retornados no formato de arrays com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
+        augmentation (opcional): Se True, os dados serão aumentados em 4 vezes espelhando as imagens horizontalmente e verticalmente.
     
     Return:
         (x_train, y_train), (x_test, y_test): Conjunto de dados.
@@ -128,6 +146,11 @@ def load_dataset(grayscale:bool=True, as_tensor:bool=False):
     if grayscale:
         to_gray = mapper(rgb2gray)
         x_train, x_test = np.stack(to_gray(x_train)), np.stack(to_gray(x_test))
+    if augmentation:
+        x_train = flipping_augmentation(x_train)
+        x_test = flipping_augmentation(x_test)
+        y_train = flipping_augmentation(y_train)
+        y_test = flipping_augmentation(y_test)
     if as_tensor:
         return ((x_train[:, :, :, np.newaxis],
                  y_train[:, :, :, np.newaxis]),
