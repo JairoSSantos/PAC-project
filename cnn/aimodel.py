@@ -1,21 +1,34 @@
 import os
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 import matplotlib.pyplot as plt
-from tensorflow.keras import Input, Model, layers
-from tensorflow.keras.callbacks import Callback
 from tensorflow.keras.models import load_model
-from tensorflow.keras.metrics import mape
-from IPython.display import clear_output
+from tensorflow.keras import Input, Model, layers
+from tensorflow.keras.callbacks import Callback, ModelCheckpoint, CSVLogger, LambdaCallback
+from IPython.display import clear_output, HTML, display
 from skimage.color import label2rgb
 from warnings import warn
+from typing import Any
 
 SAVE_PATH = os.path.join(*os.path.split(__file__)[:-1], 'saves')
 
-def mape_metric(y_true, y_pred):
-    return mape(y_true.sum(axis=(1, 2))[:, 0], (y_pred > 0.5).sum(axis=(1, 2))[:, 0])
+def mape(y_true, y_pred):
+    '''
+    Mean absolute percentage error (erro percentual médio) adaptado para comparar as áreas (em píxel).
 
-def conv_block(x, filters:int):
+    Args:
+        y_true: Tensor quadridimensional contendo as máscaras verdadeiras. 
+                Neste tensor, os valores devem ser restritos a 0 (fora da máscara) e 1 (dentro da máscara)
+        y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= qualquer valor em y_pred <= 1).
+    '''
+    area_true = tf.reduce_sum(tf.cast(y_true, tf.float32), axis=(1, 2, 3))
+    area_pred = tf.reduce_sum(tf.where(y_pred > 0.5, 1.0, 0.0), axis=(1, 2, 3))
+    return tf.reduce_mean(
+        tf.abs(area_true - area_pred)/area_true * 100
+    )
+
+def conv_block(x:Any, filters:int):
     '''
     Bloco de convolução (convolução -> batch normalization -> ReLu -> convolução -> batch normalization -> ReLu).
 
@@ -35,7 +48,7 @@ def conv_block(x, filters:int):
         x = lay(x)
     return x
 
-def encoder(x, filters:int):
+def encoder(x:Any, filters:int):
     '''
     Camada de codificação da U-Net.
 
@@ -50,7 +63,7 @@ def encoder(x, filters:int):
     x = conv_block(x, filters)
     return layers.MaxPool2D((2, 2))(x), x
 
-def decoder(x, jumper, filters:int):
+def decoder(x:Any, jumper:Any, filters:int):
     '''
     Camada de decodificação da U-Net (deconvolução + jumper -> bloco de convolução).
 
@@ -70,7 +83,7 @@ def decoder(x, jumper, filters:int):
 def check_unet_name(name:str):
     '''
     Verifica se já existe uma U-Net salva com este nome nos modelos salvos.
-    Se existir um modelo salvo com este nome, um numero inteiro será adicionado apos este (ex: 'U-Net', 'U-Net0', 'U-Net1', ...) e um aviso será emitido.
+    Se existir um modelo salvo com este nome, um numero inteiro será adicionado após este (ex: 'U-Net', 'U-Net0', 'U-Net1', ...) e um aviso será emitido.
 
     Args:
         name: Nome da U-Net.
@@ -88,162 +101,184 @@ def check_unet_name(name:str):
     if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
     return name
 
-def build_UNet(input_shape:tuple, filters:tuple, name:str, activation:str='sigmoid'):
+class UNet:
     '''
-    Construir U-Net.
+    Modelo de U-Net para segmentação de imagens.
 
     Args:
-        input_shape: Formato dos dados de entrada (3 valores inteiros: [altura, largura, canais]).
-        filters: Número de filtros para cada etapa de codificação (a mesma quantidade será utilizada na etapa de decodificação).
-        name: Nome da rede, será utilizado para salvar o modelo.
-        activation (opcional): Função de ativação da última camada da rede (default: 'sigmoid').
+        name: Nome do modelo, será usado para salvá-lo ou importá-lo, se já houver sido salvo.
+        dataset: Tupla ou lista contendo as imagens de treino e validação no formato [(x_train, y_train), (x_test, y_test)].
     
-    Return:
-        unet: U-Net, rede neural convolucional para segmentação semantica.
+    Attr:
+        x_train, y_train: Dados de treinamento.
+        x_test, y_test: Dados de validação.
+        *Qualquer outro atributo ou método pretencente à classe tf.keras.Model.
     '''
-    name = check_unet_name(name)
-    inputs = x = layers.Input(input_shape)
-    jumpers = []
-    for f in filters[:-1]:
-        x, jumper = encoder(x, f)
-        jumpers.append(jumper)
-    
-    x = conv_block(x, filters[-1])
-    
-    for f, jumper in zip(filters[::-1][1:], jumpers[::-1]):
-        x = decoder(x, jumper, f)
-    
-    outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
-    return Model(inputs=inputs, outputs=outputs, name=name)
-
-def load_unet(name:str):
-    '''
-    Carregar U-Net.
-
-    Args:
-        name: Nome do modelo.
-    
-    Return:
-        U-Net já compilada.
-    '''
-    return load_model(os.path.join(SAVE_PATH, name, f'{name}.h5'))
-
-class UNetTrainingPlot(Callback):
-    '''
-    Callback para plotar a evolução da rede neural no treinamento.
-    '''
-    def __init__(self, unet, dataset, period:int=3):
-        super(Callback, self).__init__()
-
-        self.unet = unet
+    def __init__(self, name:str, dataset:tuple|list):
+        self.name = name
         (self.x_train, self.y_train), (self.x_test, self.y_test) = dataset
-        self.period = period
-
-        self.area_total = np.multiply(*self.y_test.shape[1:-1])
-        self.y_rel_area_train = self.y_train.sum(axis=(1, 2))/self.area_total
-        self.y_rel_area_test = self.y_test.sum(axis=(1, 2))/self.area_total
-
-        Y_rel_area = np.concatenate((self.y_rel_area_train, self.y_rel_area_test))
-        ymin, ymax = Y_rel_area.min(), Y_rel_area.max()
-        dy = 0.2*(ymax - ymin)
-        self.t_min, self.t_max = ymin - dy, ymax + dy
-        self.t = np.linspace(self.t_min, self.t_max, 50)
-
-        self.logs = {'epoch':[], 'loss':[], 'val_loss':[]}
-        try:
-            logs_path = os.path.join(SAVE_PATH, unet.name, 'logs.csv')
-            self.logs = pd.read_csv(logs_path).to_dict('list')
-        except FileNotFoundError: pass
+        self._path = os.path.join(SAVE_PATH, self.name)
+        self._logs_path = os.path.join(self._path, 'logs.csv')
     
-    def update_logs(self, logs):
+    def __getattr__(self, name):
         '''
-        Atualizar logs
+        Pegar atributo pertencente ao modelo (tf.keras .Model).
         '''
-        for k, v in logs.items():
-            try: self.logs[k].append(v)
-            except KeyError: self.logs[k] = [v]
+        return getattr(self.model, name)
 
-    def plot(self):
+    def _on_epoch_end(self, epoch:int, logs:dict):
+        '''
+        Função a ser chamada durante o treinamento ao final de cada época.
+        '''
+        if not epoch%self._period: self.plot(epoch)
+        
+    def _on_train_begin(self, logs:dict):
+        '''
+        Função a ser chamada ao início do treinamento.
+        '''
+        try: os.mkdir(os.path.join(self._path))
+        except FileExistsError: pass
+        self.save()
+    
+    def _on_train_end(self, logs:dict):
+        '''
+        Função a ser chamada no final do treinamento.
+        '''
+        self.plot()
+    
+    def build(self, filters:tuple, activation:str='sigmoid'):
+        '''
+        Construir U-Net.
+
+        Args:
+            filters: Número de filtros para cada etapa de codificação (a mesma quantidade será utilizada na etapa de decodificação).
+            activation (opcional): Função de ativação da última camada da rede (default: 'sigmoid').
+        
+        Return:
+            unet: U-Net, rede neural convolucional para segmentação semantica.
+        
+        Warnings:
+            Se name atribuido à U-Net já estiver sendo usado para salvar outro modelo, a variável será alterada e um aviso será emitido informando a alteração.
+        '''
+        self.name = check_unet_name(self.name) # verificar se o nome já está em uso
+        self._path = os.path.join(SAVE_PATH, self.name)
+        self._logs_path = os.path.join(self._path, 'logs.csv')
+
+        inputs = x = layers.Input(self.x_train.shape[1:])
+        jumpers = []
+        for f in filters[:-1]:
+            x, jumper = encoder(x, f)
+            jumpers.append(jumper)
+    
+        x = conv_block(x, filters[-1])
+        
+        for f, jumper in zip(filters[::-1][1:], jumpers[::-1]):
+            x = decoder(x, jumper, f)
+        
+        outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
+        self.model = Model(inputs=inputs, outputs=outputs, name=self.name)
+        return self
+    
+    def fit(self, epochs:int, batch_size:int, period:int=5):
+        '''
+        Treinamento da rede.
+
+        Args:
+            epochs: Número de épocas de treimento.
+            batch_size: Número de imagens por pacote.
+            period (opcional): Período de atualização dos gráficos sobre o treinamento do modelo.
+        '''
+        try: initial_epoch = pd.read_csv(self._logs_path).epoch.max()
+        except FileNotFoundError: initial_epoch = 0
+        self._period = period
+        return self.model.fit(
+            self.x_train,
+            self.y_train,
+            validation_data= (self.x_test, self.y_test),
+            batch_size= batch_size,
+            epochs= epochs,
+            initial_epoch= initial_epoch,
+            verbose=1,
+            callbacks= (
+                CSVLogger(self._logs_path, append=True),
+                ModelCheckpoint(
+                    os.path.join(self._path, 'weights.{epoch:02d}-{val_loss:.4f}-{val_mape:.4f}.h5'), verbose=0
+                ),
+                LambdaCallback(
+                    on_epoch_end=self._on_epoch_end,
+                    on_train_begin=self._on_train_begin,
+                    on_train_end=self._on_train_end
+                )
+            )
+        )
+
+    def load(self):
+        '''
+        Carregar U-Net.
+        
+        Return:
+            U-Net, já compilada.
+        '''
+        self.model = load_model(os.path.join(self._path, f'{self.name}.h5'))
+        return self
+    
+    def plot(self, epoch:int=None):
         '''
         Plotar métricas.
         '''
-        pred_train = self.unet.predict(self.x_train, verbose=0)
-        pred_train_rel_area = (pred_train > 0.5).sum(axis=(1, 2))/self.area_total
-        pred_test = self.unet.predict(self.x_test, verbose=0)
-        pred_test_rel_area = (pred_test > 0.5).sum(axis=(1, 2))/self.area_total
-
         clear_output(wait=True)
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(17, 4))
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
 
-        ax1.plot(self.logs['loss'], label='loss')
-        ax1.plot(self.logs['val_loss'], label='val_loss')
-        ax1.set_xlabel('Epoch')
-        ax1.set_ylabel('Binary cross-entropy (log)')
+        logs = pd.read_csv(self._logs_path)
+        ax1.hlines(logs.val_loss.min(), 0, len(logs), fmt='-.', color='k')
+        ax1.plot(logs.loss, label='loss')
+        ax1.plot(logs.val_loss, label='val_loss')
+        ax1.set_xlim(0, len(logs))
+        ax1.set_xlabel('Época')
+        ax1.set_ylabel('Binary Cross-entropy')
         ax1.semilogy()
         ax1.legend()
-        #ax1.set_ylim(bottom=0)
 
-        i = np.random.randint(0, self.x_test.shape[0]-1)
-        ax2.imshow(label2rgb(pred_test[i, :, :, 0] > 0.5, self.x_test[i, :, :, 0], bg_label=0))
-        CS = ax2.contour(pred_test[i, :, :, 0], cmap='plasma')
-        ax2.clabel(CS, inline=True, fontsize=10)
+        x = self.x_test[np.random.randint(len(self.x_test))][np.newaxis]
+        pred = self.model.predict(x, verbose=0)[0, :, :, 0]
+        ax2.imshow(label2rgb(pred > 0.5, x[0, :, :, 0], bg_label=0))
+        ax2.contour(pred, cmap='plasma')
         ax2.grid(False)
 
-        ax3.plot(self.y_rel_area_train, pred_train_rel_area, 'o', alpha=0.5, 
-            label=f'MAPE(train) = {mape(self.y_rel_area_train, pred_train_rel_area).numpy():.2f}%')
-        ax3.plot(self.y_rel_area_test, pred_test_rel_area, 'o', alpha=0.5,
-            label=f'MAPE(val) = {mape(self.y_rel_area_test, pred_test_rel_area).numpy():.2f}%')
-        ax3.plot(self.t, self.t, 'k--', label=r'$x=y$')
-        ax3.set_xlim(self.t_min, self.t_max)
-        ax3.set_ylim(self.t_min, self.t_max)
-        ax3.set_xlabel('Área relativa verdadeira')
-        ax3.set_ylabel('Área relativa encontrada (threshold: 0.5)')
+        if epoch != None: 
+            ax3.set_title('Época: %s'%epoch)
+
+        t_min, t_max = float('inf'), -float('inf') # -infinito < qualquer valor < infinito
+        for tag in ('train', 'test'):
+            x = getattr(self, 'x_%s'%tag)
+            y = getattr(self, 'y_%s'%tag)
+            A_total = np.multiply(*x.shape[1:-1]) # shape[-1:1] = shape[1, 2]
+            pred = self.model.predict(x, verbose=0)
+            true_area = y.sum(axis=(1, 2))[:, 0]/A_total
+            pred_area = pred.sum(axis=(1, 2))[:, 0]/A_total
+            ax3.plot(true_area, pred_area, 'o', 
+                    alpha=0.5, label='{} (MAPE = {}%)'.format(tag, np.round(logs.mape.values[-1], 5)))
+            t_min = min(t_min, true_area.min())
+            t_max = max(t_max, true_area.max())
+        
+        dt = (t_max - t_min)*0.2
+        t = np.linspace(t_min - dt, t_max + dt, 10)
+        ax3.plot(t, t, 'k--', label=r'$x=y$')
+        ax3.set_xlim(t_min - dt, t_max + dt)
+        ax3.set_ylim(t_min - dt, t_max + dt)
+        ax3.set_xlabel('Método convencional (mm$^2$)')
+        ax3.set_ylabel('U-Net (mm$^2$)')
         ax3.set_aspect('equal')
         ax3.legend()
         plt.show()
-    
-    def on_epoch_end(self, epoch, logs={}):
-        self.update_logs(logs)
-        if epoch % self.period == 0: self.plot()
-    
-    def on_train_end(self, logs={}):
-        self.update_logs(logs)
-        self.plot()
 
-class UNetCheckpoint(Callback):
-    '''
-    Callback para salvar evolução do treinamento.
-    '''
-    def __init__(self, unet):
-        super(Callback, self).__init__()
-
-        self.unet = unet
-        self.path = os.path.join(SAVE_PATH, unet.name)
-        self.model_path = os.path.join(self.path, f'{self.unet.name}.h5')
-        self.weights_path = os.path.join(self.path, 'weights')
-        self.logs_path = os.path.join(self.path, 'logs.csv')
-        self.logs = {'epoch':[], 'loss':[], 'val_loss':[]}
-    
-    def on_train_begin(self, logs=None):
-        try:
-            os.mkdir(self.path)
-            os.mkdir(self.weights_path)
-        except FileExistsError: pass
-        try: self.logs = pd.read_csv(self.logs_path).to_dict('list')
-        except FileNotFoundError: self.initial_epoch = 0
-        else: self.initial_epoch = max(self.logs['epoch'])
-
-    def on_epoch_end(self, epoch, logs={}):
-        epoch += self.initial_epoch
-
-        for k, v in logs.items():
-            try: self.logs[k].append(v)
-            except KeyError: self.logs[k] = [v]
-        self.logs['epoch'].append(epoch)
+        display(HTML(logs[
+            (logs.val_loss == logs.val_loss.min())|
+            (logs.val_mape == logs.val_mape.min())
+        ].to_html()))
         
-        if logs['val_loss'] <= min(self.logs['val_loss']):
-            filename = 'epoch-{} val_loss-{}.h5'.format(epoch, np.round(logs['val_loss'], 2))
-            self.unet.save_weights(os.path.join(self.weights_path, filename))
-            self.unet.save(self.model_path)
-        
-        pd.DataFrame(self.logs).to_csv(self.logs_path, index=False)
+    def save(self):
+        '''
+        Salvar modelo.
+        '''
+        return self.model.save(os.path.join(self._path, f'{self.name}.h5'))

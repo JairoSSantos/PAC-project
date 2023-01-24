@@ -9,21 +9,56 @@ from skimage.filters import farid_v, farid_h
 from skimage.transform import rotate, hough_line, hough_line_peaks
 from skimage.feature import canny
 from skimage.io import imread, imread_collection
+from typing import Any, Callable
 
 DATASET_PATH = os.path.join(*os.path.split(__file__)[:-1], 'dataset')
 TRAIN_PATH = os.path.join(DATASET_PATH, 'train')
 TEST_PATH = os.path.join(DATASET_PATH, 'test')
 
-def mapper(func):
+def mapper(func:Callable, stack:bool=True):
     '''
-    Decorator para aplicar funções em iteráveis utilizando a função nativa map, retornando uma lista (obs: todos os valores None serão filtrados).
+    Decorator para aplicar funções em iteráveis utilizando a função nativa map (obs: todos os valores None serão filtrados).
+
+    Args:
+        stack (opcional): Se True, a saída será um array; se False, a saída será uma lista 
+                (utilize stack=False para o caso em que o formato (shape) de saída varie para diferentes itens).
+    
+    Return:
+        Função func aplicada a cada item do íterável x.
     '''
     NoneType = type(None)
     def wrapper(x, *args, **kwargs):
-        return list(filter(lambda x: type(x) != NoneType, map(lambda x: func(x, *args, **kwargs), x)))
+        try: y = list(filter(lambda x: type(x) != NoneType, map(lambda x: func(x, *args, **kwargs), x)))
+        except TypeError: return func(x, *args, **kwargs)
+        else: return np.stack(y) if stack else y
     return wrapper
 
-def align(image):
+@mapper
+def _extract_from_filepath(filepath:str, get_root:bool=True, get_area:bool=True):
+    '''
+    Extrair diretório e area do caminho de uma imagem (.jpg) no dataset.
+    '''
+    root, filename = os.path.split(filepath)
+    area, ext = os.path.splitext(filename)
+    out = []
+    if get_root: out.append(root)
+    if get_area: out.append(area)
+    return out if ext == '.jpg' else None # filtrar extensões diferentes de .jpg
+
+@mapper
+def _get_sample_info(filepath:str):
+    '''
+    Coletar informações sobre a amostra indicada pelo caminho filepath.
+    '''
+    root, filename = os.path.split(filepath)
+    area, _ = os.path.splitext(filename)
+    train = os.path.split(root)[-1]
+    im = rgb2gray(imread(filepath))
+    f, slope = find_scale(im), find_slope(im)
+    rel_area = np.sum(imread(os.path.join(root, area + '.tif'))/255)/np.multiply(*im.shape)
+    return float(area), train, f, slope, rel_area
+
+def align(image:np.ndarray):
     '''
     Alinhar imagem pela transformação de Hough.
     '''
@@ -86,21 +121,8 @@ def get_info():
     '''
     return pd.read_csv(os.path.join(DATASET_PATH, 'info.csv'))
 
-@mapper
-def get_sample_info(filepath:str):
-    '''
-    Coletar informações sobre a amostra indicada pelo caminho filepath.
-    '''
-    root, filename = os.path.split(filepath)
-    area, _ = os.path.splitext(filename)
-    train = (os.path.split(root)[-1] == 'train')
-    im = rgb2gray(imread(filepath))
-    f, slope = find_scale(im), find_slope(im)
-    label_pixel_area = np.sum(imread(os.path.join(root, area + '.tif'))/255)
-    return float(area), train, f, slope, label_pixel_area
-
-def load_random(n=1, seed=None, grayscale=True):
-    files = root_area_from_filepath(glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True))
+def load_random(n:int=1, seed:Any=None, grayscale:bool=True):
+    files = _extract_from_filepath(glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True))
     images = []
     for i in np.random.default_rng(seed).integers(0, len(files), n):
         root, area = files[i]
@@ -110,7 +132,7 @@ def load_random(n=1, seed=None, grayscale=True):
         images.append((img, lbl))
     return images
 
-def flipping_augmentation(collection):
+def flipping_augmentation(collection:np.ndarray):
     '''
     Aumento os dados espelhando as imagens.
 
@@ -127,7 +149,7 @@ def flipping_augmentation(collection):
             collection[:, ::-1, ::-1]
     ))
 
-def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation=True):
+def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation:bool=True):
     '''
     Carregar conjunto de dados para treinamento.
 
@@ -145,7 +167,7 @@ def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation=True):
     y_test = (imread_collection(glob.glob(os.path.join(TEST_PATH, '*.tif'))).concatenate()/255).astype(int)
     if grayscale:
         to_gray = mapper(rgb2gray)
-        x_train, x_test = np.stack(to_gray(x_train)), np.stack(to_gray(x_test))
+        x_train, x_test = to_gray(x_train), to_gray(x_test)
     if augmentation:
         x_train = flipping_augmentation(x_train)
         x_test = flipping_augmentation(x_test)
@@ -174,16 +196,7 @@ def norm(x:np.ndarray, vmin:float=0, vmax:float=1):
     y = vmin + (x - x.min())/x.ptp() * (vmax - vmin)
     return y
 
-@mapper
-def root_area_from_filepath(filepath):
-    '''
-    Extrair diretório e area de uma imagem (.jpg) no dataset.
-    '''
-    root, filename = os.path.split(filepath)
-    area, ext = os.path.splitext(filename)
-    return (root, area) if ext == '.jpg' else None
-
-def split_validation_data(p:float, shuffle:bool=True, seed=None, verbose:bool=True):
+def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:bool=True):
     '''
     Separar dados de validação: No diretório DATASET_PATH, os arquivos
 
@@ -194,7 +207,7 @@ def split_validation_data(p:float, shuffle:bool=True, seed=None, verbose:bool=Tr
         verbose (opcional): Se True, informações sobre a separação dos dados serão exibidas ao final do procedimento.
     '''
     all_files = glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True) # coletar o caminho até todos os arquivos no dataset
-    files = root_area_from_filepath(all_files) # separar os diretórios (root) das amostras (imagem e mascara) nomeadas com as respactivas areas
+    files = _extract_from_filepath(all_files) # separar os diretórios (root) das amostras (imagem e mascara) nomeadas com as respactivas areas
     n_files = len(files) # quantidade de amostras
     split_threshold = int(p*n_files) # quantidade de amostras que serão destinados à validação
 
@@ -210,19 +223,19 @@ def split_validation_data(p:float, shuffle:bool=True, seed=None, verbose:bool=Tr
 
     if verbose:
         tr = n_files - split_threshold
-        print((
+        print('\n'.join((
             f'Foram encontradas {n_files} amostras, totalizando {2*n_files} arquivos. '
             f'Dados para treinamento: {tr} amostras ({tr/n_files*100:.2f}%). '
             f'Dados para validação: {split_threshold} amostras ({split_threshold/n_files*100:.2f}%).'
-        ))
+        )))
 
 def update_info():
     '''
     Atualizar tabela de informações sobre o dataset.
     '''
     pd.DataFrame(
-        get_sample_info(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))) +
-        get_sample_info(glob.glob(os.path.join(TEST_PATH, '*.jpg'))),
+        _get_sample_info(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))) +
+        _get_sample_info(glob.glob(os.path.join(TEST_PATH, '*.jpg'))),
         columns=['area', 'train', 'freq', 'slope', 'label_pixel_area']
     ).sort_values('area').to_csv(os.path.join(DATASET_PATH, 'info.csv'), index=False)
 
