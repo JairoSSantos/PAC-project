@@ -22,8 +22,8 @@ def mape(y_true, y_pred):
                 Neste tensor, os valores devem ser restritos a 0 (fora da máscara) e 1 (dentro da máscara)
         y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= qualquer valor em y_pred <= 1).
     '''
-    area_true = tf.reduce_sum(tf.cast(y_true, tf.float32), axis=(1, 2, 3))
-    area_pred = tf.reduce_sum(tf.where(y_pred > 0.5, 1.0, 0.0), axis=(1, 2, 3))
+    area_true = tf.reduce_sum(tf.cast(y_true, tf.float32), axis=(1, 2))[:, 0]
+    area_pred = tf.reduce_sum(y_pred, axis=(1, 2))[:, 0]
     return tf.reduce_mean(
         tf.abs(area_true - area_pred)/area_true * 100
     )
@@ -96,7 +96,7 @@ def check_unet_name(name:str):
     while name in saved_unets:
         if name[-1].isnumeric():
             name = name[:-1] + str(int(name[-1]) + 1)
-        else: name +='0'
+        else: name += '0'
         changed = True
     if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
     return name
@@ -114,7 +114,7 @@ class UNet:
         x_test, y_test: Dados de validação.
         *Qualquer outro atributo ou método pretencente à classe tf.keras.Model.
     '''
-    def __init__(self, name:str, dataset:tuple|list):
+    def __init__(self, name:str, dataset:tuple):
         self.name = name
         (self.x_train, self.y_train), (self.x_test, self.y_test) = dataset
         self._path = os.path.join(SAVE_PATH, self.name)
@@ -196,14 +196,13 @@ class UNet:
             self.y_train,
             validation_data= (self.x_test, self.y_test),
             batch_size= batch_size,
-            epochs= epochs,
+            epochs= epochs + initial_epoch,
             initial_epoch= initial_epoch,
             verbose=1,
             callbacks= (
                 CSVLogger(self._logs_path, append=True),
-                ModelCheckpoint(
-                    os.path.join(self._path, 'weights.{epoch:02d}-{val_loss:.4f}-{val_mape:.4f}.h5'), verbose=0
-                ),
+                ModelCheckpoint(os.path.join(self._path, 'weights.{epoch:02d}-{val_loss:.4f}-{val_mape:.4f}.h5'), verbose=0, save_weights_only=True),
+                ModelCheckpoint(os.path.join(self._path, f'{self.name}.h5'), verbose=0),
                 LambdaCallback(
                     on_epoch_end=self._on_epoch_end,
                     on_train_begin=self._on_train_begin,
@@ -230,7 +229,7 @@ class UNet:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
 
         logs = pd.read_csv(self._logs_path)
-        ax1.hlines(logs.val_loss.min(), 0, len(logs), fmt='-.', color='k')
+        ax1.hlines(logs.val_loss.min(), 0, len(logs), linestyles='dashdot', color='gray')
         ax1.plot(logs.loss, label='loss')
         ax1.plot(logs.val_loss, label='val_loss')
         ax1.set_xlim(0, len(logs))
@@ -244,9 +243,11 @@ class UNet:
         ax2.imshow(label2rgb(pred > 0.5, x[0, :, :, 0], bg_label=0))
         ax2.contour(pred, cmap='plasma')
         ax2.grid(False)
+        ax2.axis('off')
 
-        if epoch != None: 
-            ax3.set_title('Época: %s'%epoch)
+        title = 'Área relativa'
+        if epoch != None: title += ' (Época: %s)'%epoch
+        ax3.set_title(title)
 
         t_min, t_max = float('inf'), -float('inf') # -infinito < qualquer valor < infinito
         for tag in ('train', 'test'):
@@ -257,7 +258,7 @@ class UNet:
             true_area = y.sum(axis=(1, 2))[:, 0]/A_total
             pred_area = pred.sum(axis=(1, 2))[:, 0]/A_total
             ax3.plot(true_area, pred_area, 'o', 
-                    alpha=0.5, label='{} (MAPE = {}%)'.format(tag, np.round(logs.mape.values[-1], 5)))
+                    alpha=0.5, label='{} (MAPE = {}%)'.format(tag, logs['mape' if tag == 'train' else 'val_mape'].round(4).values[-1]))
             t_min = min(t_min, true_area.min())
             t_max = max(t_max, true_area.max())
         
@@ -266,8 +267,8 @@ class UNet:
         ax3.plot(t, t, 'k--', label=r'$x=y$')
         ax3.set_xlim(t_min - dt, t_max + dt)
         ax3.set_ylim(t_min - dt, t_max + dt)
-        ax3.set_xlabel('Método convencional (mm$^2$)')
-        ax3.set_ylabel('U-Net (mm$^2$)')
+        ax3.set_xlabel('Método convencional')
+        ax3.set_ylabel('U-Net')
         ax3.set_aspect('equal')
         ax3.legend()
         plt.show()

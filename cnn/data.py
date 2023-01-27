@@ -121,7 +121,50 @@ def get_info():
     '''
     return pd.read_csv(os.path.join(DATASET_PATH, 'info.csv'))
 
-def load_random(n:int=1, seed:Any=None, grayscale:bool=True):
+def get_by_area(*areas, grayscale:bool=True, as_tensor:bool=False, label:bool=True):
+    '''
+    Pegar imagem pela área. Para cada valor de área em `areas`, serão retornadas todas amostras que contenham o valor indicado no nome do arquivo.
+    
+    Args:
+        *areas: Valores do tipo Float ou Int que serão usados para encontrar as imagens.
+        grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
+        as_tensor (opcional): Se True, as amostras serão retornadas na forma de tensores quadridimensionais.
+        label (opcional): Se True, serão retornadas as máscaras de cada imagem.
+    
+    Return:
+        Lista de arrays com os arquivos do dataset que continham os valores de `areas` em seus nomes.
+    '''
+    out = []
+    for area in areas:
+        imgs = imread_collection(glob.glob(os.path.join(DATASET_PATH, '*', '*%s*.jpg'%area))).concatenate()
+        
+        if grayscale: 
+            imgs = mapper(rgb2gray)(imgs)
+            if as_tensor: 
+                imgs = imgs[:, :, :, np.newaxis]
+                
+        if label:
+            lbls = (imread_collection(glob.glob(os.path.join(DATASET_PATH, '*', '*%s*.tif'%area))).concatenate()/255).astype(int)
+            if as_tensor:
+                lbls = lbls[:, :, :, np.newaxis]
+            imgs = np.stack((imgs, lbls))
+            
+        out.append(imgs)
+    return out
+
+def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=False):
+    '''
+    Pegar uma amostra aleatória do dataset.
+
+    Args:
+        n (opcional): Número de amostras.
+        seed (opcional): Seed utilizada para gerar números pseodo-aleatórios.
+        grayscale (opcional): Se True, a imagem será convertida para tons de cinza.
+        stack (opcional): Se True, as amostras serão retornadas como ndarray; se não, será retornado uma lista.
+    
+    Return:
+        Uma lista (ou ndarray, cado stack=True) contendo as amostras no formado [(imagem_1, máscara_1), ..., (imagem_n, máscara_n)].
+    '''
     files = _extract_from_filepath(glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True))
     images = []
     for i in np.random.default_rng(seed).integers(0, len(files), n):
@@ -130,7 +173,7 @@ def load_random(n:int=1, seed:Any=None, grayscale:bool=True):
         if grayscale: img = rgb2gray(img)
         lbl = (imread(os.path.join(root, area + '.tif'))/255).astype(int)
         images.append((img, lbl))
-    return images
+    return images[0] if n == 1 else images
 
 def flipping_augmentation(collection:np.ndarray):
     '''
@@ -223,11 +266,11 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
 
     if verbose:
         tr = n_files - split_threshold
-        print('\n'.join((
+        print('\n'.join([
             f'Foram encontradas {n_files} amostras, totalizando {2*n_files} arquivos. '
             f'Dados para treinamento: {tr} amostras ({tr/n_files*100:.2f}%). '
             f'Dados para validação: {split_threshold} amostras ({split_threshold/n_files*100:.2f}%).'
-        )))
+        ]))
 
 def update_info():
     '''
