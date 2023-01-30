@@ -121,16 +121,16 @@ def get_info():
     '''
     return pd.read_csv(os.path.join(DATASET_PATH, 'info.csv'))
 
-def load_random(n:int=1, seed:Any=None, grayscale:bool=True):
-    files = _extract_from_filepath(glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True))
+def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=True):
+    files = glob.glob(os.path.join(DATASET_PATH, '*/*.jpg'), recursive=True)
     images = []
-    for i in np.random.default_rng(seed).integers(0, len(files), n):
-        root, area = files[i]
-        img = imread(os.path.join(root, area + '.jpg'))
+    for jpg_file in np.random.default_rng(seed).choice(files, size=n, replace=False):
+        #root, area = _extract_from_filepath([files[i]])[0]
+        img = imread(jpg_file)
         if grayscale: img = rgb2gray(img)
-        lbl = (imread(os.path.join(root, area + '.tif'))/255).astype(int)
+        lbl = (imread(os.path.splitext(jpg_file)[0] + '.tif')/255).astype(int)
         images.append((img, lbl))
-    return images
+    return images[0] if n == 1 else (np.stack(images, axis=1) if stack else images)
 
 def flipping_augmentation(collection:np.ndarray):
     '''

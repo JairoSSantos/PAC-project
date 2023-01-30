@@ -13,6 +13,27 @@ from typing import Any
 
 SAVE_PATH = os.path.join(*os.path.split(__file__)[:-1], 'saves')
 
+def _check_unet_name(name:str):
+    '''
+    Verifica se já existe uma U-Net salva com este nome nos modelos salvos.
+    Se existir um modelo salvo com este nome, um numero inteiro será adicionado após este (ex: 'U-Net', 'U-Net0', 'U-Net1', ...) e um aviso será emitido.
+
+    Args:
+        name: Nome da U-Net.
+    
+    Return:
+        Se não houver modelo salvo com este nome, name será retornado. Porém, se houver, um novo nome será retornado.
+    '''
+    saved_unets = os.listdir(SAVE_PATH)
+    changed = False
+    while name in saved_unets:
+        if name[-1].isnumeric():
+            name = name[:-1] + str(int(name[-1]) + 1)
+        else: name +='0'
+        changed = True
+    if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
+    return name
+
 def mape(y_true, y_pred):
     '''
     Mean absolute percentage error (erro percentual médio) adaptado para comparar as áreas (em píxel).
@@ -80,26 +101,32 @@ def decoder(x:Any, jumper:Any, filters:int):
     x = conv_block(x, filters)
     return x
 
-def check_unet_name(name:str):
+def build_unet(input_shape:tuple, filters:tuple, name:str='unet', activation:str='sigmoid'):
     '''
-    Verifica se já existe uma U-Net salva com este nome nos modelos salvos.
-    Se existir um modelo salvo com este nome, um numero inteiro será adicionado após este (ex: 'U-Net', 'U-Net0', 'U-Net1', ...) e um aviso será emitido.
+    Construir U-Net.
 
     Args:
-        name: Nome da U-Net.
+        input_shape: Formato de entrada da rede.
+        filters: Número de filtros para cada etapa de codificação (a mesma quantidade será utilizada na etapa de decodificação).
+        name (opcional): Nome que será atribuído ao modelo.
+        activation (opcional): Função de ativação da última camada da rede (default: 'sigmoid').
     
     Return:
-        Se não houver modelo salvo com este nome, name será retornado. Porém, se houver, um novo nome será retornado.
+        unet: U-Net, rede neural convolucional para segmentação semantica.
     '''
-    saved_unets = os.listdir(SAVE_PATH)
-    changed = False
-    while name in saved_unets:
-        if name[-1].isnumeric():
-            name = name[:-1] + str(int(name[-1]) + 1)
-        else: name +='0'
-        changed = True
-    if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
-    return name
+    inputs = x = layers.Input(input_shape)
+    jumpers = []
+    for f in filters[:-1]:
+        x, jumper = encoder(x, f)
+        jumpers.append(jumper)
+
+    x = conv_block(x, filters[-1])
+    
+    for f, jumper in zip(filters[::-1][1:], jumpers[::-1]):
+        x = decoder(x, jumper, f)
+    
+    outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
+    return Model(inputs=inputs, outputs=outputs, name=name)
 
 class UNet:
     '''
@@ -114,7 +141,7 @@ class UNet:
         x_test, y_test: Dados de validação.
         *Qualquer outro atributo ou método pretencente à classe tf.keras.Model.
     '''
-    def __init__(self, name:str, dataset:tuple|list):
+    def __init__(self, name:str, dataset:tuple):
         self.name = name
         (self.x_train, self.y_train), (self.x_test, self.y_test) = dataset
         self._path = os.path.join(SAVE_PATH, self.name)
@@ -155,28 +182,16 @@ class UNet:
             activation (opcional): Função de ativação da última camada da rede (default: 'sigmoid').
         
         Return:
-            unet: U-Net, rede neural convolucional para segmentação semantica.
+            unet: Objeto da classe aimodel.UNet.
         
         Warnings:
             Se name atribuido à U-Net já estiver sendo usado para salvar outro modelo, a variável será alterada e um aviso será emitido informando a alteração.
         '''
-        self.name = check_unet_name(self.name) # verificar se o nome já está em uso
+        self.name = _check_unet_name(self.name) # verificar se o nome já está em uso
         self._path = os.path.join(SAVE_PATH, self.name)
         self._logs_path = os.path.join(self._path, 'logs.csv')
 
-        inputs = x = layers.Input(self.x_train.shape[1:])
-        jumpers = []
-        for f in filters[:-1]:
-            x, jumper = encoder(x, f)
-            jumpers.append(jumper)
-    
-        x = conv_block(x, filters[-1])
-        
-        for f, jumper in zip(filters[::-1][1:], jumpers[::-1]):
-            x = decoder(x, jumper, f)
-        
-        outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
-        self.model = Model(inputs=inputs, outputs=outputs, name=self.name)
+        self.model = build_unet(input_shape=self.x_train.shape[1:], filters=filters, name=self.name, activation=activation)
         return self
     
     def fit(self, epochs:int, batch_size:int, period:int=5):
