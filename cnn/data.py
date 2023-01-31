@@ -2,6 +2,7 @@ import os
 import glob
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from scipy.signal import find_peaks
 from scipy.stats import mode
 from skimage.color import rgb2gray
@@ -55,7 +56,7 @@ def _get_sample_info(filepath:str):
     train = os.path.split(root)[-1]
     im = rgb2gray(imread(filepath))
     f, slope = find_scale(im), find_slope(im)
-    rel_area = np.sum(imread(os.path.join(root, area + '.tif'))/255)/np.multiply(*im.shape)
+    rel_area = np.sum(imread(os.path.join(root, area + '.png'))/255)/np.multiply(*im.shape)
     return float(area), train, f, slope, rel_area
 
 def align(image:np.ndarray):
@@ -125,28 +126,30 @@ def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=True):
     files = glob.glob(os.path.join(DATASET_PATH, '*/*.jpg'), recursive=True)
     images = []
     for jpg_file in np.random.default_rng(seed).choice(files, size=n, replace=False):
-        #root, area = _extract_from_filepath([files[i]])[0]
         img = imread(jpg_file)
         if grayscale: img = rgb2gray(img)
-        lbl = (imread(os.path.splitext(jpg_file)[0] + '.tif')/255).astype(int)
+        lbl = (imread(os.path.splitext(jpg_file)[0] + '.png')/255).astype(int)
         images.append((img, lbl))
     return images[0] if n == 1 else (np.stack(images, axis=1) if stack else images)
 
-def flipping_augmentation(collection:np.ndarray):
+def flipping_augmentation(collection:np.ndarray, axis:tuple=(1, 2), concat_axis:int=0):
     '''
     Aumento os dados espelhando as imagens.
 
     Args:
         collection: Coleção de imagens.
+        axis: Eixos que serão espelhados.
+        concat_axis (opcional): Eixo de concatenação.
     
     Return:
-        A coleção de imagens espelhada em quatro direções (esquerda-direita, cima-baixo).
+        A coleção de imagens espelhadas nas direções definidas em `axis`.
     '''
+    assert len(axis) == 2, '`axis` deve conter exatamente 2 valores.'
     return np.concatenate((
             collection,
-            collection[:, ::-1],
-            collection[:, :, ::-1],
-            collection[:, ::-1, ::-1]
+            np.flip(collection, axis=axis),
+            np.flip(collection, axis=axis[0]),
+            np.flip(collection, axis=axis[1])
     ))
 
 def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation:bool=True):
@@ -161,23 +164,26 @@ def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation:bool=Tr
     Return:
         (x_train, y_train), (x_test, y_test): Conjunto de dados.
     '''
-    x_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()
-    y_train = (imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.tif'))).concatenate()/255).astype(int)
-    x_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()
-    y_test = (imread_collection(glob.glob(os.path.join(TEST_PATH, '*.tif'))).concatenate()/255).astype(int)
+    x_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()/255
+    y_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.png'))).concatenate()/255
+    x_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()/255
+    y_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.png'))).concatenate()/255
     if grayscale:
         to_gray = mapper(rgb2gray)
-        x_train, x_test = to_gray(x_train), to_gray(x_test)
+        x_train = to_gray(x_train)
+        x_test = to_gray(x_test)
     if augmentation:
-        x_train = flipping_augmentation(x_train)
-        x_test = flipping_augmentation(x_test)
-        y_train = flipping_augmentation(y_train)
-        y_test = flipping_augmentation(y_test)
+        x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
+        y_train = flipping_augmentation(y_train, axis=(1, 2), concat_axis=0)
+        x_test = flipping_augmentation(x_test, axis=(1, 2), concat_axis=0)
+        y_test = flipping_augmentation(y_test, axis=(1, 2), concat_axis=0)
     if as_tensor:
-        return ((x_train[:, :, :, np.newaxis],
-                 y_train[:, :, :, np.newaxis]),
-                (x_test[:, :, :, np.newaxis],
-                 y_test[:, :, :, np.newaxis]))
+        return (
+            tf.convert_to_tensor(np.expand_dims(x_train, axis=-1)),
+            tf.convert_to_tensor(np.expand_dims(y_train, axis=-1)),
+            tf.convert_to_tensor(np.expand_dims(x_test, axis=-1)),
+            tf.convert_to_tensor(np.expand_dims(y_test, axis=-1))
+        )
     else:
         return (x_train, y_train), (x_test, y_test)
 
@@ -215,7 +221,7 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
 
     for i, (root, area) in enumerate(files): # enumere as informações das amostras
         img_name = area + '.jpg' # nome da imagem
-        lbl_name = area + '.tif' # noma da mascara
+        lbl_name = area + '.png' # noma da mascara
         dst = TEST_PATH if i < split_threshold else TRAIN_PATH # novo destino dos arquivos
         try: os.rename(os.path.join(root, lbl_name), os.path.join(dst, lbl_name)) # para a mascara: caminho antigo -> novo caminho
         except FileNotFoundError: raise FileNotFoundError(f'A máscara {lbl_name} não foi encontrada, certifique-se que a imagem e sua máscara encontram-se no mesmo diretório.')

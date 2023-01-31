@@ -4,8 +4,7 @@ import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
-from tensorflow.keras import Input, Model, layers
-from tensorflow.keras.callbacks import Callback, ModelCheckpoint, CSVLogger, LambdaCallback
+from tensorflow.keras import Input, Model, layers, callbacks, losses
 from IPython.display import clear_output, HTML, display
 from skimage.color import label2rgb
 from warnings import warn
@@ -215,11 +214,9 @@ class UNet:
             initial_epoch= initial_epoch,
             verbose=1,
             callbacks= (
-                CSVLogger(self._logs_path, append=True),
-                ModelCheckpoint(
-                    os.path.join(self._path, 'weights.{epoch:02d}-{val_loss:.4f}-{val_mape:.4f}.h5'), verbose=0
-                ),
-                LambdaCallback(
+                callbacks.CSVLogger(self._logs_path, append=True),
+                callbacks.ModelCheckpoint(os.path.join(self._path, 'weights.{epoch:02d}-{val_loss:.4f}-{val_mape:.4f}.h5'), verbose=0),
+                callbacks.LambdaCallback(
                     on_epoch_end=self._on_epoch_end,
                     on_train_begin=self._on_train_begin,
                     on_train_end=self._on_train_end
@@ -297,3 +294,10 @@ class UNet:
         Salvar modelo.
         '''
         return self.model.save(os.path.join(self._path, f'{self.name}.h5'))
+
+class CustomLoss(losses.Loss):
+    def __init__(self, mape:bool=False):
+        super().__init__()
+        self._mape = mape
+    
+    def call(self, y_true, y_pred): pass
