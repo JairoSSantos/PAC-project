@@ -91,7 +91,7 @@ def find_scale(img:np.ndarray):
     '''
     freq = np.fft.fftfreq(len(img), 1)
     loc = (freq > 0)
-    auto_fft = lambda x: norm(np.abs(np.fft.fft(autocorr(x, 'same')))[loc], vmin=0, vmax=1)
+    auto_fft = lambda x: norm(np.abs(np.fft.fft(autocorr(x, 'same')))[loc], vmin=0, vmax=1).numpy()
     far = np.concatenate([farid_v(img), farid_h(img).T])
     Y = np.apply_along_axis(auto_fft, 0, far.T).mean(axis=1)
     P = find_peaks(Y, height=0.5)[0]
@@ -122,17 +122,33 @@ def get_info():
     '''
     return pd.read_csv(os.path.join(DATASET_PATH, 'info.csv'))
 
-def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=True):
+def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=False, as_tensor:bool=False):
     files = glob.glob(os.path.join(DATASET_PATH, '*/*.jpg'), recursive=True)
     images = []
     for jpg_file in np.random.default_rng(seed).choice(files, size=n, replace=False):
-        img = imread(jpg_file)
+        img = imread(jpg_file)/255
         if grayscale: img = rgb2gray(img)
         lbl = (imread(os.path.splitext(jpg_file)[0] + '.png')/255).astype(int)
         images.append((img, lbl))
-    return images[0] if n == 1 else (np.stack(images, axis=1) if stack else images)
+    if n == 1: return images[0]
+    elif stack: return np.stack(images, axis=1)
+    elif as_tensor: return tf.expand_dims(tf.stack(images, axis=1), axis=-1)
 
-def flipping_augmentation(collection:np.ndarray, axis:tuple=(1, 2), concat_axis:int=0):
+def weights(lbls, vmax=2):
+    assert vmax > 1
+    height, width = lbls.shape[1:3]
+    X, Y, _ = tf.meshgrid(tf.range(width, dtype=tf.float32), tf.range(height, dtype=tf.float32), tf.zeros(1))
+    edges = tf.reduce_any(tf.image.sobel_edges(lbls) != 0, axis=-1)
+    W = []
+    for edge_points, lbl in zip(edges, lbls):
+        Ex = X[edge_points][tf.newaxis, tf.newaxis]
+        Ey = Y[edge_points][tf.newaxis, tf.newaxis]
+        R = np.sqrt((Ex - X)**2 + (Ey - Y)**2)
+        R_min = tf.expand_dims(tf.reduce_min(R, axis=-1), axis=-1)
+        W.append(norm(tf.where(lbl == 0, tf.sqrt(R_min), 0), vmin=1, vmax=vmax))
+    return tf.stack(W)
+
+def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
     '''
     Aumento os dados espelhando as imagens.
 
@@ -145,49 +161,48 @@ def flipping_augmentation(collection:np.ndarray, axis:tuple=(1, 2), concat_axis:
         A coleção de imagens espelhadas nas direções definidas em `axis`.
     '''
     assert len(axis) == 2, '`axis` deve conter exatamente 2 valores.'
-    return np.concatenate((
+    return tf.concatenate((
             collection,
-            np.flip(collection, axis=axis),
-            np.flip(collection, axis=axis[0]),
-            np.flip(collection, axis=axis[1])
-    ))
+            tf.reverse(collection, axis=axis),
+            tf.reverse(collection, axis=axis[0]),
+            tf.reverse(collection, axis=axis[1])
+    ), axis=concat_axis)
 
-def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation:bool=True):
+def load_dataset(grayscale:bool=True, augmentation:bool=True, weights:bool=False, vmax:int=2):
     '''
     Carregar conjunto de dados para treinamento.
 
     Args:
         grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
-        as_tensor (opcional): Se True, os dados serão retornados no formato de arrays com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
         augmentation (opcional): Se True, os dados serão aumentados em 4 vezes espelhando as imagens horizontalmente e verticalmente.
     
     Return:
         (x_train, y_train), (x_test, y_test): Conjunto de dados.
     '''
-    x_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()/255
-    y_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.png'))).concatenate()/255
-    x_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()/255
-    y_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.png'))).concatenate()/255
-    if grayscale:
-        to_gray = mapper(rgb2gray)
-        x_train = to_gray(x_train)
-        x_test = to_gray(x_test)
-    if augmentation:
+    # x.shape = [N, H, W, 3]
+    # y.shape = [N, H, W, 1]
+    x_train = tf.stack(imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()/255)
+    y_train = tf.expand_dims(tf.stack(imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.png'))).concatenate()/255), axis=-1)
+    x_test = tf.stack(imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()/255)
+    y_test = tf.expand_dims(tf.stack(imread_collection(glob.glob(os.path.join(TEST_PATH, '*.png'))).concatenate()/255), axis=-1)
+
+    if grayscale: # x.shape = [N, H, W, 1]
+        x_train = tf.image.rgb_to_grayscale(x_train)
+        x_test = tf.image.rgb_to_grayscale(x_test)
+    
+    if weights: # y.shape = [N, H, W, 2]
+        y_train = tf.stack((y_train, weights(y_train, vmax=vmax)), axis=-1)
+        y_test = tf.stack((y_test, weights(y_test, vmax=vmax)), axis=-1)
+    
+    if augmentation: # shape = [4*N, H, W, ...]
         x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
         y_train = flipping_augmentation(y_train, axis=(1, 2), concat_axis=0)
         x_test = flipping_augmentation(x_test, axis=(1, 2), concat_axis=0)
         y_test = flipping_augmentation(y_test, axis=(1, 2), concat_axis=0)
-    if as_tensor:
-        return (
-            tf.convert_to_tensor(np.expand_dims(x_train, axis=-1)),
-            tf.convert_to_tensor(np.expand_dims(y_train, axis=-1)),
-            tf.convert_to_tensor(np.expand_dims(x_test, axis=-1)),
-            tf.convert_to_tensor(np.expand_dims(y_test, axis=-1))
-        )
-    else:
-        return (x_train, y_train), (x_test, y_test)
 
-def norm(x:np.ndarray, vmin:float=0, vmax:float=1):
+    return (x_train, y_train), (x_test, y_test)
+
+def norm(x, vmin:float=0, vmax:float=1):
     '''
     Normalizar valores de um array "x" para determinados limites (vmin, vmax).
 
@@ -197,10 +212,9 @@ def norm(x:np.ndarray, vmin:float=0, vmax:float=1):
         vmax (opcional): Limite superior (default: 1).
     
     Return:
-        y: Array normalizado.
+        y: Tensor normalizado.
     '''
-    y = vmin + (x - x.min())/x.ptp() * (vmax - vmin)
-    return y
+    return vmin + (x - tf.reduce_min(x)) * (vmax - vmin)/(tf.reduce_max(x) - tf.reduce_min(x))
 
 def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:bool=True):
     '''
