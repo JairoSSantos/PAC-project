@@ -33,20 +33,20 @@ def _check_unet_name(name:str):
     if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
     return name
 
-def mape(y_true, y_pred):
+@tf.function
+def amape(y_true, y_pred):
     '''
-    Mean absolute percentage error (erro percentual médio) adaptado para comparar as áreas (em píxel).
+    Erro percentual médio adaptado para comparar as áreas (em píxel) entre a saída do modelo `y_pred` e o valor verdadeiro `y_true`.
 
     Args:
-        y_true: Tensor quadridimensional contendo as máscaras verdadeiras. 
-                Neste tensor, os valores devem ser restritos a 0 (fora da máscara) e 1 (dentro da máscara)
-        y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= qualquer valor em y_pred <= 1).
+        y_true: Tensor quadridimensional contendo as máscaras verdadeiras.
+                Neste tensor, os valores devem ser restritos a 0 (fora da máscara) e 1 (dentro da máscara).
+                Se `y_true.shape[-1] > 1`, será considerado apenas `y_true[:, :, :, 0]`.
+        y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= `y_pred` <= 1).
     '''
-    area_true = tf.reduce_sum(tf.cast(y_true, tf.float32), axis=(1, 2, 3))
-    area_pred = tf.reduce_sum(tf.where(y_pred > 0.5, 1.0, 0.0), axis=(1, 2, 3))
-    return tf.reduce_mean(
-        tf.abs(area_true - area_pred)/area_true * 100
-    )
+    area_true = tf.reduce_sum(y_true[:, :, :, 0], axis=(-1, -2))
+    area_pred = tf.reduce_sum(y_pred, axis=(-1, -2, -3))
+    return tf.reduce_mean(tf.abs(area_true - area_pred)/area_true * 10)
 
 def conv_block(x:Any, filters:int):
     '''
@@ -126,6 +126,10 @@ def build_unet(input_shape:tuple, filters:tuple, name:str='unet', activation:str
     
     outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
     return Model(inputs=inputs, outputs=outputs, name=name)
+
+@tf.function
+def weighted_binary_crossentropy(y_true, weight, y_pred):
+    return -tf.reduce_mean(weight*tf.where(y_true == 1, tf.log(y_pred), tf.log(1 - y_pred)), axis=(-1, -2, -3))
 
 class UNet:
     '''
@@ -296,8 +300,11 @@ class UNet:
         return self.model.save(os.path.join(self._path, f'{self.name}.h5'))
 
 class CustomLoss(losses.Loss):
-    def __init__(self, mape:bool=False):
+    def __init__(self, mrae:bool=False):
         super().__init__()
-        self._mape = mape
+        self._mrae = mrae
     
-    def call(self, y_true, y_pred): pass
+    def call(self, y_true, y_pred):
+        L = weighted_binary_crossentropy(*tf.split(y_true, num_or_size_splits=2, axis=-1), y_pred)
+        if self._mrae: L /= tf.reduce_mean(y_pred, axis=(-1, -2, -3))
+        return L
