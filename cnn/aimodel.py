@@ -129,7 +129,7 @@ def build_unet(input_shape:tuple, filters:tuple, name:str='unet', activation:str
 
 @tf.function
 def weighted_binary_crossentropy(y_true, weight, y_pred):
-    return -tf.reduce_mean(weight*tf.where(y_true == 1, tf.log(y_pred), tf.log(1 - y_pred)), axis=(-1, -2, -3))
+    return -tf.reduce_mean(weight*tf.where(y_true == 1, tf.math.log(y_pred), tf.math.log(1 - y_pred)), axis=(-1, -2, -3))
 
 class UNet:
     '''
@@ -219,7 +219,8 @@ class UNet:
             verbose=1,
             callbacks= (
                 callbacks.CSVLogger(self._logs_path, append=True),
-                callbacks.ModelCheckpoint(os.path.join(self._path, 'weights.{epoch:02d}-{val_loss:.4f}-{val_mape:.4f}.h5'), verbose=0),
+                callbacks.ModelCheckpoint(os.path.join(self._path, 'weights.{epoch:04d}.h5'), verbose=0, save_weights_only=True),
+                callbacks.ModelCheckpoint(os.path.join(self._path, f'{self.name}.h5'), verbose=0, save_weights_only=False),
                 callbacks.LambdaCallback(
                     on_epoch_end=self._on_epoch_end,
                     on_train_begin=self._on_train_begin,
@@ -228,17 +229,17 @@ class UNet:
             )
         )
 
-    def load(self):
+    def load(self, epoch=None):
         '''
         Carregar U-Net.
         
         Return:
             U-Net, já compilada.
         '''
-        self.model = load_model(os.path.join(self._path, f'{self.name}.h5'))
+        self.model = load_model(os.path.join(self._path, f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'))
         return self
     
-    def plot(self, epoch:int=None):
+    def plot(self, epoch=None):
         '''
         Plotar métricas.
         '''
@@ -246,51 +247,53 @@ class UNet:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
 
         logs = pd.read_csv(self._logs_path)
-        ax1.hlines(logs.val_loss.min(), 0, len(logs), fmt='-.', color='k')
+        x_max = len(logs)
+        ax1.hlines(logs.val_loss.min(), 0, x_max, linestyles='dashdot', color='k')
         ax1.plot(logs.loss, label='loss')
         ax1.plot(logs.val_loss, label='val_loss')
-        ax1.set_xlim(0, len(logs))
+        ax1.set_xlim(0, x_max)
         ax1.set_xlabel('Época')
-        ax1.set_ylabel('Binary Cross-entropy')
+        ax1.set_ylabel('Loss')
         ax1.semilogy()
         ax1.legend()
 
-        x = self.x_test[np.random.randint(len(self.x_test))][np.newaxis]
-        pred = self.model.predict(x, verbose=0)[0, :, :, 0]
-        ax2.imshow(label2rgb(pred > 0.5, x[0, :, :, 0], bg_label=0))
-        ax2.contour(pred, cmap='plasma')
-        ax2.grid(False)
-
         if epoch != None: 
-            ax3.set_title('Época: %s'%epoch)
+            ax2.set_title('Época: %s'%epoch)
 
         t_min, t_max = float('inf'), -float('inf') # -infinito < qualquer valor < infinito
         for tag in ('train', 'test'):
             x = getattr(self, 'x_%s'%tag)
-            y = getattr(self, 'y_%s'%tag)
-            A_total = np.multiply(*x.shape[1:-1]) # shape[-1:1] = shape[1, 2]
+            y = getattr(self, 'y_%s'%tag) # y.shape = [N, H, W, D]
             pred = self.model.predict(x, verbose=0)
-            true_area = y.sum(axis=(1, 2))[:, 0]/A_total
-            pred_area = pred.sum(axis=(1, 2))[:, 0]/A_total
-            ax3.plot(true_area, pred_area, 'o', 
-                    alpha=0.5, label='{} (MAPE = {}%)'.format(tag, np.round(logs.mape.values[-1], 5)))
-            t_min = min(t_min, true_area.min())
-            t_max = max(t_max, true_area.max())
+            true_rel_area = tf.reduce_mean(y, axis=(1, 2))[:, 0] # tf.reduce_mean(y, axis=(1, 2)).shape = [N, D]
+            pred_rel_area = tf.reduce_mean(pred, axis=(1, 2))[:, 0]
+            ax2.plot(true_rel_area, pred_rel_area, 'o', 
+                    alpha=0.5, label='{} (AMAPE = {}%)'.format(tag, np.round(logs[('val_' if tag == 'test' else '') + 'amape'].values[-1], 5)))
+            t_min = min(t_min, tf.reduce_min(true_rel_area))
+            t_max = max(t_max, tf.reduce_max(true_rel_area))
         
         dt = (t_max - t_min)*0.2
         t = np.linspace(t_min - dt, t_max + dt, 10)
-        ax3.plot(t, t, 'k--', label=r'$x=y$')
-        ax3.set_xlim(t_min - dt, t_max + dt)
-        ax3.set_ylim(t_min - dt, t_max + dt)
-        ax3.set_xlabel('Método convencional (mm$^2$)')
-        ax3.set_ylabel('U-Net (mm$^2$)')
-        ax3.set_aspect('equal')
-        ax3.legend()
+        ax2.plot(t, t, 'k--', label=r'$x=y$')
+        ax2.set_xlim(t_min - dt, t_max + dt)
+        ax2.set_ylim(t_min - dt, t_max + dt)
+        ax2.set_xlabel('Método convencional (mm$^2$)')
+        ax2.set_ylabel('U-Net (mm$^2$)')
+        ax2.set_aspect('equal')
+        ax2.legend()
+
+        x = self.x_test[np.random.randint(len(self.x_test))][tf.newaxis].numpy()
+        pred = self.model.predict(x, verbose=0)[0, :, :, 0]
+        ax3.imshow(label2rgb(pred > 0.5, x[0, :, :, 0], bg_label=0))
+        ax3.contour(pred, cmap='plasma')
+        ax3.grid(False)
+        ax3.axis('off')
+
         plt.show()
 
         display(HTML(logs[
             (logs.val_loss == logs.val_loss.min())|
-            (logs.val_mape == logs.val_mape.min())
+            (logs.val_amape == logs.val_amape.min())
         ].to_html()))
         
     def save(self):
@@ -308,3 +311,8 @@ class CustomLoss(losses.Loss):
         L = weighted_binary_crossentropy(*tf.split(y_true, num_or_size_splits=2, axis=-1), y_pred)
         if self._mrae: L /= tf.reduce_mean(y_pred, axis=(-1, -2, -3))
         return L
+    
+    def get_config(self):
+        config = super(CustomLoss, self).get_config()
+        config.update({'mrae': self._mrae})
+        return config

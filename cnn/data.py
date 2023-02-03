@@ -134,19 +134,24 @@ def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=False, as
     elif stack: return np.stack(images, axis=1)
     elif as_tensor: return tf.expand_dims(tf.stack(images, axis=1), axis=-1)
 
-def weights(lbls, vmax=2):
+def calc_weights(lbls, vmax=2, verbose=False):
     assert vmax > 1
     height, width = lbls.shape[1:3]
-    X, Y, _ = tf.meshgrid(tf.range(width, dtype=tf.float32), tf.range(height, dtype=tf.float32), tf.zeros(1))
+    X, Y, _ = tf.meshgrid(tf.range(width, dtype=tf.float32), tf.range(height, dtype=tf.float32), tf.zeros(1, dtype=tf.float32))
     edges = tf.reduce_any(tf.image.sobel_edges(lbls) != 0, axis=-1)
     W = []
-    for edge_points, lbl in zip(edges, lbls):
+    T = lbls.shape[0]
+    for i, (edge_points, lbl) in enumerate(zip(edges, lbls)):
         Ex = X[edge_points][tf.newaxis, tf.newaxis]
         Ey = Y[edge_points][tf.newaxis, tf.newaxis]
         R = np.sqrt((Ex - X)**2 + (Ey - Y)**2)
         R_min = tf.expand_dims(tf.reduce_min(R, axis=-1), axis=-1)
         W.append(norm(tf.where(lbl == 0, tf.sqrt(R_min), 0), vmin=1, vmax=vmax))
-    return tf.stack(W)
+        if verbose: 
+            j = (i + 1)/T
+            print('\rCalculando pesos:|' + '='*int(20*j) + ' '*int(20*(1 - j)) + f'|{i + 1}/{T} ({j*100:.2f}%)', end='')
+    if verbose: print()
+    return tf.cast(tf.stack(W), dtype=lbls.dtype)
 
 def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
     '''
@@ -161,14 +166,14 @@ def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
         A coleção de imagens espelhadas nas direções definidas em `axis`.
     '''
     assert len(axis) == 2, '`axis` deve conter exatamente 2 valores.'
-    return tf.concatenate((
+    return tf.concat((
             collection,
             tf.reverse(collection, axis=axis),
-            tf.reverse(collection, axis=axis[0]),
-            tf.reverse(collection, axis=axis[1])
+            tf.reverse(collection, axis=axis[:0]),
+            tf.reverse(collection, axis=axis[1:2])
     ), axis=concat_axis)
 
-def load_dataset(grayscale:bool=True, augmentation:bool=True, weights:bool=False, vmax:int=2):
+def load_dataset(grayscale:bool=True, augmentation:bool=True, weights:bool=False, vmax:int=2, verbose:bool=False):
     '''
     Carregar conjunto de dados para treinamento.
 
@@ -191,8 +196,8 @@ def load_dataset(grayscale:bool=True, augmentation:bool=True, weights:bool=False
         x_test = tf.image.rgb_to_grayscale(x_test)
     
     if weights: # y.shape = [N, H, W, 2]
-        y_train = tf.stack((y_train, weights(y_train, vmax=vmax)), axis=-1)
-        y_test = tf.stack((y_test, weights(y_test, vmax=vmax)), axis=-1)
+        y_train = tf.concat((y_train, calc_weights(y_train, vmax=vmax, verbose=verbose)), axis=-1)
+        y_test = tf.concat((y_test, calc_weights(y_test, vmax=vmax, verbose=verbose)), axis=-1)
     
     if augmentation: # shape = [4*N, H, W, ...]
         x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
