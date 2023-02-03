@@ -127,10 +127,6 @@ def build_unet(input_shape:tuple, filters:tuple, name:str='unet', activation:str
     outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
     return Model(inputs=inputs, outputs=outputs, name=name)
 
-@tf.function
-def weighted_binary_crossentropy(y_true, weight, y_pred):
-    return -tf.reduce_mean(weight*tf.where(y_true == 1, tf.math.log(y_pred), tf.math.log(1 - y_pred)), axis=(-1, -2, -3))
-
 class UNet:
     '''
     Modelo de U-Net para segmentação de imagens.
@@ -301,18 +297,3 @@ class UNet:
         Salvar modelo.
         '''
         return self.model.save(os.path.join(self._path, f'{self.name}.h5'))
-
-class CustomLoss(losses.Loss):
-    def __init__(self, mrae:bool=False):
-        super().__init__()
-        self._mrae = mrae
-    
-    def call(self, y_true, y_pred):
-        L = weighted_binary_crossentropy(*tf.split(y_true, num_or_size_splits=2, axis=-1), y_pred)
-        if self._mrae: L /= tf.reduce_mean(y_pred, axis=(-1, -2, -3))
-        return L
-    
-    def get_config(self):
-        config = super(CustomLoss, self).get_config()
-        config.update({'mrae': self._mrae})
-        return config

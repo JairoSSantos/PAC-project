@@ -134,25 +134,6 @@ def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=False, as
     elif stack: return np.stack(images, axis=1)
     elif as_tensor: return tf.expand_dims(tf.stack(images, axis=1), axis=-1)
 
-def calc_weights(lbls, vmax=2, verbose=False):
-    assert vmax > 1
-    height, width = lbls.shape[1:3]
-    X, Y, _ = tf.meshgrid(tf.range(width, dtype=tf.float32), tf.range(height, dtype=tf.float32), tf.zeros(1, dtype=tf.float32))
-    edges = tf.reduce_any(tf.image.sobel_edges(lbls) != 0, axis=-1)
-    W = []
-    T = lbls.shape[0]
-    for i, (edge_points, lbl) in enumerate(zip(edges, lbls)):
-        Ex = X[edge_points][tf.newaxis, tf.newaxis]
-        Ey = Y[edge_points][tf.newaxis, tf.newaxis]
-        R = np.sqrt((Ex - X)**2 + (Ey - Y)**2)
-        R_min = tf.expand_dims(tf.reduce_min(R, axis=-1), axis=-1)
-        W.append(norm(tf.where(lbl == 0, tf.sqrt(R_min), 0), vmin=1, vmax=vmax))
-        if verbose: 
-            j = (i + 1)/T
-            print('\rCalculando pesos:|' + '='*int(20*j) + ' '*int(20*(1 - j)) + f'|{i + 1}/{T} ({j*100:.2f}%)', end='')
-    if verbose: print()
-    return tf.cast(tf.stack(W), dtype=lbls.dtype)
-
 def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
     '''
     Aumento os dados espelhando as imagens.
@@ -173,7 +154,7 @@ def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
             tf.reverse(collection, axis=axis[1:2])
     ), axis=concat_axis)
 
-def load_dataset(grayscale:bool=True, augmentation:bool=True, weights:bool=False, vmax:int=2, verbose:bool=False):
+def load_dataset(grayscale:bool=True, augmentation:bool=True):
     '''
     Carregar conjunto de dados para treinamento.
 
@@ -195,11 +176,7 @@ def load_dataset(grayscale:bool=True, augmentation:bool=True, weights:bool=False
         x_train = tf.image.rgb_to_grayscale(x_train)
         x_test = tf.image.rgb_to_grayscale(x_test)
     
-    if weights: # y.shape = [N, H, W, 2]
-        y_train = tf.concat((y_train, calc_weights(y_train, vmax=vmax, verbose=verbose)), axis=-1)
-        y_test = tf.concat((y_test, calc_weights(y_test, vmax=vmax, verbose=verbose)), axis=-1)
-    
-    if augmentation: # shape = [4*N, H, W, ...]
+    if augmentation: # shape = [4*N, H, W, D]
         x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
         y_train = flipping_augmentation(y_train, axis=(1, 2), concat_axis=0)
         x_test = flipping_augmentation(x_test, axis=(1, 2), concat_axis=0)
