@@ -4,8 +4,7 @@ import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
-from tensorflow.keras import Input, Model, layers
-from tensorflow.keras.callbacks import Callback, ModelCheckpoint, CSVLogger, LambdaCallback
+from tensorflow.keras import Input, Model, layers, callbacks, losses
 from IPython.display import clear_output, HTML, display
 from skimage.color import label2rgb
 from warnings import warn
@@ -13,20 +12,41 @@ from typing import Any
 
 SAVE_PATH = os.path.join(*os.path.split(__file__)[:-1], 'saves')
 
-def mape(y_true, y_pred):
+def _check_unet_name(name:str):
     '''
-    Mean absolute percentage error (erro percentual médio) adaptado para comparar as áreas (em píxel).
+    Verifica se já existe uma U-Net salva com este nome nos modelos salvos.
+    Se existir um modelo salvo com este nome, um numero inteiro será adicionado após este (ex: 'U-Net', 'U-Net0', 'U-Net1', ...) e um aviso será emitido.
 
     Args:
-        y_true: Tensor quadridimensional contendo as máscaras verdadeiras. 
-                Neste tensor, os valores devem ser restritos a 0 (fora da máscara) e 1 (dentro da máscara)
-        y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= qualquer valor em y_pred <= 1).
+        name: Nome da U-Net.
+    
+    Return:
+        Se não houver modelo salvo com este nome, name será retornado. Porém, se houver, um novo nome será retornado.
     '''
-    area_true = tf.reduce_sum(tf.cast(y_true, tf.float32), axis=(1, 2))[:, 0]
-    area_pred = tf.reduce_sum(y_pred, axis=(1, 2))[:, 0]
-    return tf.reduce_mean(
-        tf.abs(area_true - area_pred)/area_true * 100
-    )
+    saved_unets = os.listdir(SAVE_PATH)
+    changed = False
+    while name in saved_unets:
+        if name[-1].isnumeric():
+            name = name[:-1] + str(int(name[-1]) + 1)
+        else: name +='0'
+        changed = True
+    if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
+    return name
+
+@tf.function
+def amape(y_true, y_pred):
+    '''
+    Erro percentual médio adaptado para comparar as áreas (em píxel) entre a saída do modelo `y_pred` e o valor verdadeiro `y_true`.
+
+    Args:
+        y_true: Tensor quadridimensional contendo as máscaras verdadeiras.
+                Neste tensor, os valores devem ser restritos a 0 (fora da máscara) e 1 (dentro da máscara).
+                Se `y_true.shape[-1] > 1`, será considerado apenas `y_true[:, :, :, 0]`.
+        y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= `y_pred` <= 1).
+    '''
+    area_true = tf.reduce_sum(y_true[:, :, :, 0], axis=(-1, -2))
+    area_pred = tf.reduce_sum(y_pred, axis=(-1, -2, -3))
+    return tf.reduce_mean(tf.abs(area_true - area_pred)/area_true * 100)
 
 def conv_block(x:Any, filters:int):
     '''
@@ -80,26 +100,32 @@ def decoder(x:Any, jumper:Any, filters:int):
     x = conv_block(x, filters)
     return x
 
-def check_unet_name(name:str):
+def build_unet(input_shape:tuple, filters:tuple, name:str='unet', activation:str='sigmoid'):
     '''
-    Verifica se já existe uma U-Net salva com este nome nos modelos salvos.
-    Se existir um modelo salvo com este nome, um numero inteiro será adicionado após este (ex: 'U-Net', 'U-Net0', 'U-Net1', ...) e um aviso será emitido.
+    Construir U-Net.
 
     Args:
-        name: Nome da U-Net.
+        input_shape: Formato de entrada da rede.
+        filters: Número de filtros para cada etapa de codificação (a mesma quantidade será utilizada na etapa de decodificação).
+        name (opcional): Nome que será atribuído ao modelo.
+        activation (opcional): Função de ativação da última camada da rede (default: 'sigmoid').
     
     Return:
-        Se não houver modelo salvo com este nome, name será retornado. Porém, se houver, um novo nome será retornado.
+        unet: U-Net, rede neural convolucional para segmentação semantica.
     '''
-    saved_unets = os.listdir(SAVE_PATH)
-    changed = False
-    while name in saved_unets:
-        if name[-1].isnumeric():
-            name = name[:-1] + str(int(name[-1]) + 1)
-        else: name += '0'
-        changed = True
-    if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
-    return name
+    inputs = x = layers.Input(input_shape)
+    jumpers = []
+    for f in filters[:-1]:
+        x, jumper = encoder(x, f)
+        jumpers.append(jumper)
+
+    x = conv_block(x, filters[-1])
+    
+    for f, jumper in zip(filters[::-1][1:], jumpers[::-1]):
+        x = decoder(x, jumper, f)
+    
+    outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
+    return Model(inputs=inputs, outputs=outputs, name=name)
 
 class UNet:
     '''
@@ -155,28 +181,16 @@ class UNet:
             activation (opcional): Função de ativação da última camada da rede (default: 'sigmoid').
         
         Return:
-            unet: U-Net, rede neural convolucional para segmentação semantica.
+            unet: Objeto da classe aimodel.UNet.
         
         Warnings:
             Se name atribuido à U-Net já estiver sendo usado para salvar outro modelo, a variável será alterada e um aviso será emitido informando a alteração.
         '''
-        self.name = check_unet_name(self.name) # verificar se o nome já está em uso
+        self.name = _check_unet_name(self.name) # verificar se o nome já está em uso
         self._path = os.path.join(SAVE_PATH, self.name)
         self._logs_path = os.path.join(self._path, 'logs.csv')
 
-        inputs = x = layers.Input(self.x_train.shape[1:])
-        jumpers = []
-        for f in filters[:-1]:
-            x, jumper = encoder(x, f)
-            jumpers.append(jumper)
-    
-        x = conv_block(x, filters[-1])
-        
-        for f, jumper in zip(filters[::-1][1:], jumpers[::-1]):
-            x = decoder(x, jumper, f)
-        
-        outputs = layers.Conv2D(1, 1, padding='same', activation=activation)(x)
-        self.model = Model(inputs=inputs, outputs=outputs, name=self.name)
+        self.model = build_unet(input_shape=self.x_train.shape[1:], filters=filters, name=self.name, activation=activation)
         return self
     
     def fit(self, epochs:int, batch_size:int, period:int=5):
@@ -200,10 +214,10 @@ class UNet:
             initial_epoch= initial_epoch,
             verbose=1,
             callbacks= (
-                CSVLogger(self._logs_path, append=True),
-                ModelCheckpoint(os.path.join(self._path, 'weights.{epoch:02d}-{val_loss:.4f}-{val_mape:.4f}.h5'), verbose=0, save_weights_only=True),
-                ModelCheckpoint(os.path.join(self._path, f'{self.name}.h5'), verbose=0),
-                LambdaCallback(
+                callbacks.CSVLogger(self._logs_path, append=True),
+                callbacks.ModelCheckpoint(os.path.join(self._path, 'weights.{epoch:04d}.h5'), verbose=0, save_weights_only=True),
+                callbacks.ModelCheckpoint(os.path.join(self._path, f'{self.name}.h5'), verbose=0, save_weights_only=False),
+                callbacks.LambdaCallback(
                     on_epoch_end=self._on_epoch_end,
                     on_train_begin=self._on_train_begin,
                     on_train_end=self._on_train_end
@@ -211,17 +225,17 @@ class UNet:
             )
         )
 
-    def load(self):
+    def load(self, epoch=None, **kwargs):
         '''
         Carregar U-Net.
         
         Return:
             U-Net, já compilada.
         '''
-        self.model = load_model(os.path.join(self._path, f'{self.name}.h5'))
+        self.model = load_model(os.path.join(self._path, f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
         return self
     
-    def plot(self, epoch:int=None):
+    def plot(self, epoch=None):
         '''
         Plotar métricas.
         '''
@@ -229,53 +243,53 @@ class UNet:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
 
         logs = pd.read_csv(self._logs_path)
-        ax1.hlines(logs.val_loss.min(), 0, len(logs), linestyles='dashdot', color='gray')
+        x_max = len(logs)
+        ax1.hlines(logs.val_loss.min(), 0, x_max, linestyles='dashdot', color='k')
         ax1.plot(logs.loss, label='loss')
         ax1.plot(logs.val_loss, label='val_loss')
-        ax1.set_xlim(0, len(logs))
+        ax1.set_xlim(0, x_max)
         ax1.set_xlabel('Época')
-        ax1.set_ylabel('Binary Cross-entropy')
+        ax1.set_ylabel('Loss')
         ax1.semilogy()
         ax1.legend()
 
-        x = self.x_test[np.random.randint(len(self.x_test))][np.newaxis]
-        pred = self.model.predict(x, verbose=0)[0, :, :, 0]
-        ax2.imshow(label2rgb(pred > 0.5, x[0, :, :, 0], bg_label=0))
-        ax2.contour(pred, cmap='plasma')
-        ax2.grid(False)
-        ax2.axis('off')
-
-        title = 'Área relativa'
-        if epoch != None: title += ' (Época: %s)'%epoch
-        ax3.set_title(title)
+        if epoch != None: 
+            ax2.set_title('Época: %s'%epoch)
 
         t_min, t_max = float('inf'), -float('inf') # -infinito < qualquer valor < infinito
         for tag in ('train', 'test'):
             x = getattr(self, 'x_%s'%tag)
-            y = getattr(self, 'y_%s'%tag)
-            A_total = np.multiply(*x.shape[1:-1]) # shape[-1:1] = shape[1, 2]
+            y = getattr(self, 'y_%s'%tag) # y.shape = [N, H, W, D]
             pred = self.model.predict(x, verbose=0)
-            true_area = y.sum(axis=(1, 2))[:, 0]/A_total
-            pred_area = pred.sum(axis=(1, 2))[:, 0]/A_total
-            ax3.plot(true_area, pred_area, 'o', 
-                    alpha=0.5, label='{} (MAPE = {}%)'.format(tag, logs['mape' if tag == 'train' else 'val_mape'].round(4).values[-1]))
-            t_min = min(t_min, true_area.min())
-            t_max = max(t_max, true_area.max())
+            true_rel_area = tf.reduce_mean(y, axis=(1, 2))[:, 0] # tf.reduce_mean(y, axis=(1, 2)).shape = [N, D]
+            pred_rel_area = tf.reduce_mean(pred, axis=(1, 2))[:, 0]
+            ax2.plot(true_rel_area, pred_rel_area, 'o', 
+                    alpha=0.5, label='{} (AMAPE = {}%)'.format(tag, np.round(logs[('val_' if tag == 'test' else '') + 'amape'].values[-1], 5)))
+            t_min = min(t_min, tf.reduce_min(true_rel_area))
+            t_max = max(t_max, tf.reduce_max(true_rel_area))
         
         dt = (t_max - t_min)*0.2
         t = np.linspace(t_min - dt, t_max + dt, 10)
-        ax3.plot(t, t, 'k--', label=r'$x=y$')
-        ax3.set_xlim(t_min - dt, t_max + dt)
-        ax3.set_ylim(t_min - dt, t_max + dt)
-        ax3.set_xlabel('Método convencional')
-        ax3.set_ylabel('U-Net')
-        ax3.set_aspect('equal')
-        ax3.legend()
+        ax2.plot(t, t, 'k--', label=r'$x=y$')
+        ax2.set_xlim(t_min - dt, t_max + dt)
+        ax2.set_ylim(t_min - dt, t_max + dt)
+        ax2.set_xlabel('Método convencional')
+        ax2.set_ylabel(self.name)
+        ax2.set_aspect('equal')
+        ax2.legend()
+
+        x = self.x_test[np.random.randint(len(self.x_test))][tf.newaxis].numpy()
+        pred = self.model.predict(x, verbose=0)[0, :, :, 0]
+        ax3.imshow(label2rgb(pred > 0.5, x[0, :, :, 0], bg_label=0))
+        ax3.contour(pred, cmap='plasma')
+        ax3.grid(False)
+        ax3.axis('off')
+
         plt.show()
 
         display(HTML(logs[
             (logs.val_loss == logs.val_loss.min())|
-            (logs.val_mape == logs.val_mape.min())
+            (logs.val_amape == logs.val_amape.min())
         ].to_html()))
         
     def save(self):

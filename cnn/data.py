@@ -2,6 +2,7 @@ import os
 import glob
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 from scipy.signal import find_peaks
 from scipy.stats import mode
 from skimage.color import rgb2gray
@@ -55,7 +56,7 @@ def _get_sample_info(filepath:str):
     train = os.path.split(root)[-1]
     im = rgb2gray(imread(filepath))
     f, slope = find_scale(im), find_slope(im)
-    rel_area = np.sum(imread(os.path.join(root, area + '.tif'))/255)/np.multiply(*im.shape)
+    rel_area = np.sum(imread(os.path.join(root, area + '.png'))/255)/np.multiply(*im.shape)
     return float(area), train, f, slope, rel_area
 
 def align(image:np.ndarray):
@@ -90,7 +91,7 @@ def find_scale(img:np.ndarray):
     '''
     freq = np.fft.fftfreq(len(img), 1)
     loc = (freq > 0)
-    auto_fft = lambda x: norm(np.abs(np.fft.fft(autocorr(x, 'same')))[loc], vmin=0, vmax=1)
+    auto_fft = lambda x: norm(np.abs(np.fft.fft(autocorr(x, 'same')))[loc], vmin=0, vmax=1).numpy()
     far = np.concatenate([farid_v(img), farid_h(img).T])
     Y = np.apply_along_axis(auto_fft, 0, far.T).mean(axis=1)
     P = find_peaks(Y, height=0.5)[0]
@@ -121,110 +122,69 @@ def get_info():
     '''
     return pd.read_csv(os.path.join(DATASET_PATH, 'info.csv'))
 
-def get_by_area(*areas, grayscale:bool=True, as_tensor:bool=False, label:bool=True):
-    '''
-    Pegar imagem pela área. Para cada valor de área em `areas`, serão retornadas todas amostras que contenham o valor indicado no nome do arquivo.
-    
-    Args:
-        *areas: Valores do tipo Float ou Int que serão usados para encontrar as imagens.
-        grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
-        as_tensor (opcional): Se True, as amostras serão retornadas na forma de tensores quadridimensionais.
-        label (opcional): Se True, serão retornadas as máscaras de cada imagem.
-    
-    Return:
-        Lista de arrays com os arquivos do dataset que continham os valores de `areas` em seus nomes.
-    '''
-    out = []
-    for area in areas:
-        imgs = imread_collection(glob.glob(os.path.join(DATASET_PATH, '*', '*%s*.jpg'%area))).concatenate()
-        
-        if grayscale: 
-            imgs = mapper(rgb2gray)(imgs)
-            if as_tensor: 
-                imgs = imgs[:, :, :, np.newaxis]
-                
-        if label:
-            lbls = (imread_collection(glob.glob(os.path.join(DATASET_PATH, '*', '*%s*.tif'%area))).concatenate()/255).astype(int)
-            if as_tensor:
-                lbls = lbls[:, :, :, np.newaxis]
-            imgs = np.stack((imgs, lbls))
-            
-        out.append(imgs)
-    return out
-
-def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=False):
-    '''
-    Pegar uma amostra aleatória do dataset.
-
-    Args:
-        n (opcional): Número de amostras.
-        seed (opcional): Seed utilizada para gerar números pseodo-aleatórios.
-        grayscale (opcional): Se True, a imagem será convertida para tons de cinza.
-        stack (opcional): Se True, as amostras serão retornadas como ndarray; se não, será retornado uma lista.
-    
-    Return:
-        Uma lista (ou ndarray, cado stack=True) contendo as amostras no formado [(imagem_1, máscara_1), ..., (imagem_n, máscara_n)].
-    '''
-    files = _extract_from_filepath(glob.glob(os.path.join(DATASET_PATH, '**'), recursive=True))
+def get_random(n:int=1, seed:Any=None, grayscale:bool=True, stack:bool=False, as_tensor:bool=False):
+    files = glob.glob(os.path.join(DATASET_PATH, '*/*.jpg'), recursive=True)
     images = []
-    for i in np.random.default_rng(seed).integers(0, len(files), n):
-        root, area = files[i]
-        img = imread(os.path.join(root, area + '.jpg'))
+    for jpg_file in np.random.default_rng(seed).choice(files, size=n, replace=False):
+        img = imread(jpg_file)/255
         if grayscale: img = rgb2gray(img)
-        lbl = (imread(os.path.join(root, area + '.tif'))/255).astype(int)
+        lbl = (imread(os.path.splitext(jpg_file)[0] + '.png')/255).astype(int)
         images.append((img, lbl))
-    return images[0] if n == 1 else images
+    if n == 1: return images[0]
+    elif stack: return np.stack(images, axis=1)
+    elif as_tensor: return tf.expand_dims(tf.stack(images, axis=1), axis=-1)
 
-def flipping_augmentation(collection:np.ndarray):
+def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
     '''
     Aumento os dados espelhando as imagens.
 
     Args:
         collection: Coleção de imagens.
+        axis: Eixos que serão espelhados.
+        concat_axis (opcional): Eixo de concatenação.
     
     Return:
-        A coleção de imagens espelhada em quatro direções (esquerda-direita, cima-baixo).
+        A coleção de imagens espelhadas nas direções definidas em `axis`.
     '''
-    return np.concatenate((
+    assert len(axis) == 2, '`axis` deve conter exatamente 2 valores.'
+    return tf.concat((
             collection,
-            collection[:, ::-1],
-            collection[:, :, ::-1],
-            collection[:, ::-1, ::-1]
-    ))
+            tf.reverse(collection, axis=axis),
+            tf.reverse(collection, axis=axis[:0]),
+            tf.reverse(collection, axis=axis[1:2])
+    ), axis=concat_axis)
 
-def load_dataset(grayscale:bool=True, as_tensor:bool=False, augmentation:bool=True):
+def load_dataset(grayscale:bool=True, augmentation:bool=True):
     '''
     Carregar conjunto de dados para treinamento.
 
     Args:
         grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
-        as_tensor (opcional): Se True, os dados serão retornados no formato de arrays com 4 dimensões. Se False, os dados serão retornados na forma de arrays com 3 dimensões
         augmentation (opcional): Se True, os dados serão aumentados em 4 vezes espelhando as imagens horizontalmente e verticalmente.
     
     Return:
         (x_train, y_train), (x_test, y_test): Conjunto de dados.
     '''
-    x_train = imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()
-    y_train = (imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.tif'))).concatenate()/255).astype(int)
-    x_test = imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()
-    y_test = (imread_collection(glob.glob(os.path.join(TEST_PATH, '*.tif'))).concatenate()/255).astype(int)
-    if grayscale:
-        to_gray = mapper(rgb2gray)
-        x_train, x_test = to_gray(x_train), to_gray(x_test)
-    if augmentation:
-        x_train = flipping_augmentation(x_train)
-        x_test = flipping_augmentation(x_test)
-        y_train = flipping_augmentation(y_train)
-        y_test = flipping_augmentation(y_test)
-    if as_tensor:
-        return ((x_train[:, :, :, np.newaxis],
-                 y_train[:, :, :, np.newaxis]),
-                (x_test[:, :, :, np.newaxis],
-                 y_test[:, :, :, np.newaxis]))
-    else:
-        return (x_train, y_train), (x_test, y_test)
+    # x.shape = [N, H, W, 3]
+    # y.shape = [N, H, W, 1]
+    x_train = tf.stack(imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.jpg'))).concatenate()/255)
+    y_train = tf.expand_dims(tf.stack(imread_collection(glob.glob(os.path.join(TRAIN_PATH, '*.png'))).concatenate()/255), axis=-1)
+    x_test = tf.stack(imread_collection(glob.glob(os.path.join(TEST_PATH, '*.jpg'))).concatenate()/255)
+    y_test = tf.expand_dims(tf.stack(imread_collection(glob.glob(os.path.join(TEST_PATH, '*.png'))).concatenate()/255), axis=-1)
 
-def norm(x:np.ndarray, vmin:float=0, vmax:float=1):
+    if grayscale: # x.shape = [N, H, W, 1]
+        x_train = tf.image.rgb_to_grayscale(x_train)
+        x_test = tf.image.rgb_to_grayscale(x_test)
+    
+    if augmentation: # shape = [4*N, H, W, D]
+        x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
+        y_train = flipping_augmentation(y_train, axis=(1, 2), concat_axis=0)
+        x_test = flipping_augmentation(x_test, axis=(1, 2), concat_axis=0)
+        y_test = flipping_augmentation(y_test, axis=(1, 2), concat_axis=0)
+
+    return (x_train, y_train), (x_test, y_test)
+
+def norm(x, vmin:float=0, vmax:float=1):
     '''
     Normalizar valores de um array "x" para determinados limites (vmin, vmax).
 
@@ -234,10 +194,9 @@ def norm(x:np.ndarray, vmin:float=0, vmax:float=1):
         vmax (opcional): Limite superior (default: 1).
     
     Return:
-        y: Array normalizado.
+        y: Tensor normalizado.
     '''
-    y = vmin + (x - x.min())/x.ptp() * (vmax - vmin)
-    return y
+    return vmin + (x - tf.reduce_min(x)) * (vmax - vmin)/(tf.reduce_max(x) - tf.reduce_min(x))
 
 def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:bool=True):
     '''
@@ -258,7 +217,7 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
 
     for i, (root, area) in enumerate(files): # enumere as informações das amostras
         img_name = area + '.jpg' # nome da imagem
-        lbl_name = area + '.tif' # noma da mascara
+        lbl_name = area + '.png' # noma da mascara
         dst = TEST_PATH if i < split_threshold else TRAIN_PATH # novo destino dos arquivos
         try: os.rename(os.path.join(root, lbl_name), os.path.join(dst, lbl_name)) # para a mascara: caminho antigo -> novo caminho
         except FileNotFoundError: raise FileNotFoundError(f'A máscara {lbl_name} não foi encontrada, certifique-se que a imagem e sua máscara encontram-se no mesmo diretório.')
