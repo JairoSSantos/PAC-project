@@ -225,11 +225,11 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
 
     if verbose:
         tr = n_files - split_threshold
-        print('\n'.join((
+        print('\n'.join([
             f'Foram encontradas {n_files} amostras, totalizando {2*n_files} arquivos. '
             f'Dados para treinamento: {tr} amostras ({tr/n_files*100:.2f}%). '
             f'Dados para validação: {split_threshold} amostras ({split_threshold/n_files*100:.2f}%).'
-        )))
+        ]))
 
 def update_info():
     '''

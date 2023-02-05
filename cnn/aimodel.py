@@ -46,7 +46,7 @@ def amape(y_true, y_pred):
     '''
     area_true = tf.reduce_sum(y_true[:, :, :, 0], axis=(-1, -2))
     area_pred = tf.reduce_sum(y_pred, axis=(-1, -2, -3))
-    return tf.reduce_mean(tf.abs(area_true - area_pred)/area_true * 10)
+    return tf.reduce_mean(tf.abs(area_true - area_pred)/area_true * 100)
 
 def conv_block(x:Any, filters:int):
     '''
@@ -210,7 +210,7 @@ class UNet:
             self.y_train,
             validation_data= (self.x_test, self.y_test),
             batch_size= batch_size,
-            epochs= epochs,
+            epochs= epochs + initial_epoch,
             initial_epoch= initial_epoch,
             verbose=1,
             callbacks= (
@@ -225,14 +225,14 @@ class UNet:
             )
         )
 
-    def load(self, epoch=None):
+    def load(self, epoch=None, **kwargs):
         '''
         Carregar U-Net.
         
         Return:
             U-Net, já compilada.
         '''
-        self.model = load_model(os.path.join(self._path, f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'))
+        self.model = load_model(os.path.join(self._path, f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
         return self
     
     def plot(self, epoch=None):
@@ -273,8 +273,8 @@ class UNet:
         ax2.plot(t, t, 'k--', label=r'$x=y$')
         ax2.set_xlim(t_min - dt, t_max + dt)
         ax2.set_ylim(t_min - dt, t_max + dt)
-        ax2.set_xlabel('Método convencional (mm$^2$)')
-        ax2.set_ylabel('U-Net (mm$^2$)')
+        ax2.set_xlabel('Método convencional')
+        ax2.set_ylabel(self.name)
         ax2.set_aspect('equal')
         ax2.legend()
 
