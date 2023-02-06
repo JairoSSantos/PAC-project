@@ -10,8 +10,6 @@ from skimage.color import label2rgb
 from warnings import warn
 from typing import Any
 
-SAVE_PATH = os.path.join(*os.path.split(__file__)[:-1], 'saves')
-
 def _check_unet_name(name:str):
     '''
     Verifica se já existe uma U-Net salva com este nome nos modelos salvos.
