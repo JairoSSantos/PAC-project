@@ -26,13 +26,13 @@ def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
     ), axis=concat_axis)
 
 def load_collection(pattern, grayscale=False, normalize=True, as_tensor=True):
-    collection = tf.stack(mapper(imread, stack=False)(pattern, as_gray=grayscale), axis=0)
+    collection = tf.stack(tuple(map(lambda path: imread(path, as_gray=grayscale), pattern)))
     if normalize:
         collection = norm(collection, axis=(1, 2))
-    if as_tensor and len(collection.shape) < 4:
-        collection = tf.expand_dims(collection, axis=-1)
-    else:
+    if not as_tensor:
         collection = tf.squeeze(collection).numpy()
+    elif len(collection.shape) < 4:
+        collection = tf.expand_dims(collection, axis=-1)
     return collection
 
 def load_dataset(**kwargs):
@@ -92,14 +92,14 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
         seed (opcional): Seed usada para embaralhar os arquivos (obs: esta informação só será utilizada caso shuffle=True).
         verbose (opcional): Se True, informações sobre a separação dos dados serão exibidas ao final do procedimento.
     '''
-    all_jpg_paths = list(Paths.DATA.glob('**\*.jpg'))
-    n_files = len(files)
+    all_jpg_files = list(Paths.DATA.glob('**\*.jpg'))
+    n_files = len(all_jpg_files)
     split_threshold = int(p*n_files)
 
     if shuffle: 
-        np.random.default_rng(seed).shuffle(files) # embaralhe as amostras, se shuffle for verdadeiro
+        np.random.default_rng(seed).shuffle(all_jpg_files) # embaralhe as amostras, se shuffle for verdadeiro
 
-    for i, jpg_file in enumerate(all_jpg_paths): # enumere as informações das amostras
+    for i, jpg_file in enumerate(all_jpg_files): # enumere as informações das amostras
         new_dir = Paths.TEST if i < split_threshold else Paths.TRAIN
         png_file = jpg_file.with_suffix('.png')
 
