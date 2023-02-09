@@ -1,5 +1,6 @@
-from skimage.color import label2rgb
+import numpy as np
 import matplotlib.pyplot as plt
+from skimage.color import label2rgb
 
 def plot_image(image, **kwargs):
     if len(image.shape) == 4: image = image[0, :, :, 0]
