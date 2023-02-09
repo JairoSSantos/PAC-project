@@ -61,12 +61,14 @@ def load_dataset(**kwargs):
 
     return (x_train, y_train), (x_test, y_test)
 
-def load_random(n:int=1, seed:Any=None, **kwargs):
+def load_random(n:int=1, seed:Any=None, get_area:bool=False, **kwargs):
     jpg_files = list(Paths.DATA.glob('**/*.jpg'))
     chosens = np.random.default_rng(seed).choice(jpg_files, size=n, replace=False)
     images = load_collection(chosens, **kwargs)
     labels = load_collection([jpg_file.with_suffix('.png') for jpg_file in chosens], **kwargs)
-    return (images, labels)
+    out = [images, labels]
+    if get_area: out.append([float(jpg_file.stem) for jpg_file in chosens])
+    return out
 
 def norm(x, vmin:float=0, vmax:float=1, axis=None):
     '''
