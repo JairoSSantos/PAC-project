@@ -25,17 +25,21 @@ def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
             tf.reverse(collection, axis=axis[1:2])
     ), axis=concat_axis)
 
-def load_collection(pattern, grayscale=False, normalize=True, as_tensor=True):
-    collection = tf.stack(tuple(map(lambda path: imread(path, as_gray=grayscale), pattern)))
-    if normalize:
-        collection = norm(collection, axis=(1, 2))
+def load_by_area(area, **kwargs):
+    return (
+        load_collection(Paths.DATA.glob(f'**/{area}.jpg'), **kwargs), 
+        load_collection(Paths.DATA.glob(f'**/{area}.png'), **kwargs)
+    )
+
+def load_collection(pattern, grayscale=False, as_tensor=True):
+    collection = tf.stack(list(map(lambda path: imread(path, as_gray=grayscale), pattern)))
     if not as_tensor:
         collection = tf.squeeze(collection).numpy()
     elif len(collection.shape) < 4:
         collection = tf.expand_dims(collection, axis=-1)
     return collection
 
-def load_dataset(**kwargs):
+def load_dataset(augmentation, **kwargs):
     '''
     Carregar conjunto de dados para treinamento.
 
@@ -70,7 +74,7 @@ def load_random(n:int=1, seed:Any=None, get_area:bool=False, **kwargs):
     if get_area: out.append([float(jpg_file.stem) for jpg_file in chosens])
     return out
 
-def norm(x, vmin:float=0, vmax:float=1, axis=None):
+def norm(x, vmin:float=0, vmax:float=1):
     '''
     Normalizar valores de um array "x" para determinados limites (vmin, vmax).
 
@@ -82,7 +86,8 @@ def norm(x, vmin:float=0, vmax:float=1, axis=None):
     Return:
         y: Tensor normalizado.
     '''
-    return vmin + (x - tf.reduce_min(x, axis=axis)) * (vmax - vmin)/(tf.reduce_max(x, axis=axis) - tf.reduce_min(x, axis=axis))
+    xmin = tf.reduce_min(x)
+    return vmin + (x - xmin) * (vmax - vmin)/(tf.reduce_max(x) - xmin)
 
 def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:bool=True):
     '''
