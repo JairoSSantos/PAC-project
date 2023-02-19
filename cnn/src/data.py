@@ -74,21 +74,6 @@ def load_random(n:int=1, seed:Any=None, get_area:bool=False, **kwargs):
     if get_area: out.append([float(jpg_file.stem) for jpg_file in chosens])
     return out
 
-def norm(x, vmin:float=0, vmax:float=1):
-    '''
-    Normalizar valores de um array "x" para determinados limites (vmin, vmax).
-
-    Args:
-        x: Array n-dimensional com os valores que serão normalizados.
-        vmin (opcional): Limite inferior (default: 0).
-        vmax (opcional): Limite superior (default: 1).
-    
-    Return:
-        y: Tensor normalizado.
-    '''
-    xmin = tf.reduce_min(x)
-    return vmin + (x - xmin) * (vmax - vmin)/(tf.reduce_max(x) - xmin)
-
 def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:bool=True):
     '''
     Separar dados de validação: No diretório config.DATASET, os arquivos
@@ -120,3 +105,5 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
             f'Dados para treinamento: {tr} amostras ({tr/n_files*100:.2f}%).'
             f'Dados para validação: {split_threshold} amostras ({split_threshold/n_files*100:.2f}%).'
         ]))
+
+def regularize_raw_data(): pass

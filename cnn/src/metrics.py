@@ -1,28 +1,30 @@
+import numpy as np
 from scipy.stats import mode
 from scipy.signal import find_peaks
+from skimage.io import imread
 from skimage.feature import canny
 from skimage.filters import farid_v, farid_h
 from skimage.transform import rotate, hough_line, hough_line_peaks
+from .config import Paths
 
-def _get_sample_info(filepath:str):
+def _get_info(jpg_file:str):
     '''
-    Coletar informações sobre a amostra indicada pelo caminho filepath.
+    Coletar informações sobre a amostra indicada pelo caminho jpg_file.
     '''
-    root, filename = os.path.split(filepath)
-    area, _ = os.path.splitext(filename)
-    train = os.path.split(root)[-1]
-    im = rgb2gray(imread(filepath))
-    f, slope = find_scale(im), find_slope(im)
-    rel_area = np.sum(imread(os.path.join(root, area + '.png'))/255)/np.multiply(*im.shape)
-    return float(area), train, f, slope, rel_area
+    area = float(jpg_file.stem)
+    split = jpg_file.parent.name
+    im = imread(jpg_file, as_gray=True)
+    freq, slope = find_scale(im), find_slope(im)
+    rel_area = np.mean(imread(jpg_file.with_suffix('.png'))/255)
+    return area, train, freq, slope, rel_area
 
-def align(image:np.ndarray):
+def align(image):
     '''
     Alinhar imagem pela transformação de Hough.
     '''
     return rotate(image, find_slope(image), mode='reflect')
 
-def autocorr(x:np.ndarray, mode:str='full'):
+def autocorr(x, mode:str='full'):
     '''
     Autocorrelação de um sinal.
 
@@ -36,7 +38,7 @@ def autocorr(x:np.ndarray, mode:str='full'):
     C_xx = np.correlate(x, x, mode=mode)
     return C_xx
 
-def find_scale(img:np.ndarray):
+def find_scale(img):
     '''
     Encontrar escala píxel-milimetro.
 
@@ -55,7 +57,7 @@ def find_scale(img:np.ndarray):
     f = freq[loc][P].min()
     return f
 
-def find_slope(image:np.ndarray, n_angles=500):
+def find_slope(image, n_angles=500):
     '''
     Encontrar inclinação da imagem utilizando transformação de Hough.
 
@@ -77,14 +79,13 @@ def get_info():
     '''
     Pegar informações sobre as amostras do dataset.
     '''
-    return pd.read_csv(os.path.join(config.DATASET, 'info.csv'))
+    return pd.read_csv(Paths.DATA/'info.csv')
 
 def update_info():
     '''
     Atualizar tabela de informações sobre o dataset.
     '''
     pd.DataFrame(
-        _get_sample_info(glob.glob(os.path.join(config.TRAIN, '*.jpg'))) +
-        _get_sample_info(glob.glob(os.path.join(config.TEST, '*.jpg'))),
+        [],
         columns=['area', 'train', 'freq', 'slope', 'label_pixel_area']
     ).sort_values('area').to_csv(os.path.join(config.DATASET, 'info.csv'), index=False)
