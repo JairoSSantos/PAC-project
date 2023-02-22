@@ -114,3 +114,18 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
         ]))
 
 def regularize_raw_data(): pass
+
+def get_info():
+    '''
+    Pegar informações sobre as amostras do dataset.
+    '''
+    return pd.read_csv(Paths.DATA/'info.csv')
+
+def update_info():
+    '''
+    Atualizar tabela de informações sobre o dataset.
+    '''
+    pd.DataFrame(
+        [],
+        columns=['area', 'train', 'freq', 'slope', 'label_pixel_area']
+    ).sort_values('area').to_csv(os.path.join(config.DATASET, 'info.csv'), index=False)
