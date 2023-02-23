@@ -31,7 +31,7 @@ def load_by_area(area, **kwargs):
         load_collection(Paths.DATA.glob(f'**/{area}.png'), **kwargs)
     )
 
-def load_collection(pattern, grayscale=False, as_tensor=True, norm=True):
+def load_collection(pattern, grayscale=True, as_tensor=True, norm=True):
     collection = tf.stack(list(map(lambda path: imread(path, as_gray=grayscale), pattern)))
 
     if not as_tensor:

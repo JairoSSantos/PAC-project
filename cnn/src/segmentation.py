@@ -9,6 +9,7 @@ from IPython.display import clear_output, HTML, display
 from skimage.color import label2rgb
 from warnings import warn
 from typing import Any
+from .metrics import amape
 
 def _check_unet_name(name:str):
     '''
@@ -30,21 +31,6 @@ def _check_unet_name(name:str):
         changed = True
     if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
     return name
-
-@tf.function
-def amape(y_true, y_pred):
-    '''
-    Erro percentual médio adaptado para comparar as áreas (em píxel) entre a saída do modelo `y_pred` e o valor verdadeiro `y_true`.
-
-    Args:
-        y_true: Tensor quadridimensional contendo as máscaras verdadeiras.
-                Neste tensor, os valores devem ser restritos a 0 (fora da máscara) e 1 (dentro da máscara).
-                Se `y_true.shape[-1] > 1`, será considerado apenas `y_true[:, :, :, 0]`.
-        y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= `y_pred` <= 1).
-    '''
-    area_true = tf.reduce_sum(y_true[:, :, :, 0], axis=(-1, -2))
-    area_pred = tf.reduce_sum(y_pred, axis=(-1, -2, -3))
-    return tf.reduce_mean(tf.abs(area_true - area_pred)/area_true * 100)
 
 def conv_block(x:Any, filters:int):
     '''
