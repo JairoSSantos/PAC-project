@@ -1,9 +1,8 @@
 import numpy as np
 import tensorflow as tf
-from abc import ABC, abstractmethod
 from scipy.stats import mode, circmean, circstd
 from scipy.ndimage import gaussian_filter
-from tensorflow.keras import Sequential, Input
+from tensorflow.keras import Model, Input
 from tensorflow.keras.layers import Lambda
 
 def FFT(x):
@@ -41,50 +40,24 @@ def find_slope(img, beta=3e-3):
     H = 90 - np.degrees(np.arctan2(Y[loc], X[loc]))%90
     return circmean(H, low=0, high=90), circstd(H, low=0, high=90)
 
-def scale_from_mask(area, mask):
-    return area/mask.sum(axis=(-1, -2))
+def measurer(function, input_shape, dtype, name, *args, **kwargs):
+    def appraise(x):
+        return function(x, *args, **kwargs)
 
-class Measurer(ABC, Sequential):
-    '''
-    Measurer é uma classe abstrata criada para facilitar a implementação de um modelo tensorflow com base em uma função numpy que extrai medidas da imagem.
-    '''
-    def __init__(self, input_shape, mtype):
-        assert len(input_shape) == 2
-        self.mtype = mtype
-
-        measure_layer = Lambda(lambda images: tf.map_fn(self._appraise, images, fn_output_signature=self.mtype))
-
-        Sequential.__init__(self, 
-        layers=[
-            Input(input_shape),
-            measure_layer,
-        ])
+    @tf.function
+    def _appraise(x):
+        return tf.stack(tf.numpy_function(appraise, [x], [dtype, dtype]))
     
     @tf.function
-    def _appraise(self, img):
-        return tf.stack(tf.numpy_function(self.appraise, [img], [self.mtype, self.mtype]))
+    def _mapper(X):
+        return tf.map_fn(_appraise, X, fn_output_signature=dtype)
 
-    @abstractmethod
-    def appraise(self): pass
+    X = Input(input_shape)
+    return Model(
+        inputs= X, 
+        outputs= Lambda(_mapper)(X),
+        name= name
+    )
 
-class ScaleMeasurer(Measurer):
-    '''
-    Modelo tensorflow para medir a escala das imagens.
-    '''
-    def __init__(self, input_shape, sigma):
-        Measurer.__init__(self, input_shape, mtype=tf.float64)
-        self.sigma = sigma
-
-    def appraise(self, img):
-        return find_scale(img, sigma=self.sigma)
-
-class SlopeMeasurer(Measurer):
-    '''
-    Modelo tensorflow para medir a inclinação das imagens com relação ao papel milimetrado.
-    '''
-    def __init__(self, input_shape, beta):
-        Measurer.__init__(self, input_shape, mtype=tf.float64)
-        self.beta = beta
-
-    def appraise(self, img):
-        return find_slope(img, beta=self.beta)
+def scale_from_mask(area, mask):
+    return area/mask.sum(axis=(-1, -2))
