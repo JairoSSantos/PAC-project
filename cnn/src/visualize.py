@@ -8,3 +8,10 @@ def plot_image(image, **kwargs):
 
 def plot_label(image, label, **kwargs):
     return plot_image(label2rgb(np.squeeze(label), np.squeeze(image), bg_label=0), **kwargs)
+
+class Plot:
+    def __init__(self, log_name):
+
+class TrainingBoard:
+    def __init__(self, objects):
+        pass
