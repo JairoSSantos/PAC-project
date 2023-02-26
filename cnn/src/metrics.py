@@ -26,6 +26,12 @@ def amape(y_true, y_pred):
                 Se `y_true.shape[-1] > 1`, será considerado apenas `y_true[:, :, :, 0]`.
         y_pred: Tensor quadridimentional contendo as saídas da rede neural (0 <= `y_pred` <= 1).
     '''
-    area_true = tf.reduce_sum(y_true[:, :, :, 0], axis=(-1, -2))
+    area_true = tf.reduce_sum(y_true[..., 0], axis=(-1, -2))
     area_pred = tf.reduce_sum(y_pred, axis=(-1, -2, -3))
     return tf.reduce_mean(tf.abs(area_true - area_pred)/area_true * 100)
+
+def DSC(y_true, y_pred):
+    '''
+    Dice Similarity Coefficient
+    '''
+    return 2*tf.reduce_sum(y_true*y_pred, axis=(-1, -2, -3))/(tf.reduce_sum(y_true) + tf.reduce_sum(y_pred))

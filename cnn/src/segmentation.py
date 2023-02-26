@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -7,30 +6,9 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras import Input, Model, layers, callbacks, losses
 from IPython.display import clear_output, HTML, display
 from skimage.color import label2rgb
-from warnings import warn
 from typing import Any
+from .config import Paths
 from .metrics import amape
-
-def _check_unet_name(name:str):
-    '''
-    Verifica se já existe uma U-Net salva com este nome nos modelos salvos.
-    Se existir um modelo salvo com este nome, um numero inteiro será adicionado após este (ex: 'U-Net', 'U-Net0', 'U-Net1', ...) e um aviso será emitido.
-
-    Args:
-        name: Nome da U-Net.
-    
-    Return:
-        Se não houver modelo salvo com este nome, name será retornado. Porém, se houver, um novo nome será retornado.
-    '''
-    saved_unets = os.listdir(SAVE_PATH)
-    changed = False
-    while name in saved_unets:
-        if name[-1].isnumeric():
-            name = name[:-1] + str(int(name[-1]) + 1)
-        else: name +='0'
-        changed = True
-    if changed: warn(f'Nome alterado para {name}, pois uma U-Net com este nome já foi salva.')
-    return name
 
 def conv_block(x:Any, filters:int):
     '''
@@ -127,12 +105,12 @@ class UNet:
     def __init__(self, name:str, dataset:tuple):
         self.name = name
         (self.x_train, self.y_train), (self.x_test, self.y_test) = dataset
-        self._path = os.path.join(SAVE_PATH, self.name)
-        self._logs_path = os.path.join(self._path, 'logs.csv')
+        self._dir = Paths.MODELS/self.name
+        self._logs_path = self._dir/'logs.csv'
     
     def __getattr__(self, name):
         '''
-        Pegar atributo pertencente ao modelo (tf.keras .Model).
+        Pegar atributo pertencente ao modelo (tf.keras.Model).
         '''
         return getattr(self.model, name)
 
@@ -146,8 +124,7 @@ class UNet:
         '''
         Função a ser chamada ao início do treinamento.
         '''
-        try: os.mkdir(os.path.join(self._path))
-        except FileExistsError: pass
+        self._dir.mkdir(exist_ok=True)
         self.save()
     
     def _on_train_end(self, logs:dict):
@@ -165,14 +142,15 @@ class UNet:
             activation (opcional): Função de ativação da última camada da rede (default: 'sigmoid').
         
         Return:
-            unet: Objeto da classe aimodel.UNet.
+            unet: Objeto segmentation.UNet.
         
         Warnings:
             Se name atribuido à U-Net já estiver sendo usado para salvar outro modelo, a variável será alterada e um aviso será emitido informando a alteração.
         '''
-        self.name = _check_unet_name(self.name) # verificar se o nome já está em uso
-        self._path = os.path.join(SAVE_PATH, self.name)
-        self._logs_path = os.path.join(self._path, 'logs.csv')
+        if self._dir.exists():
+            self._dir = _add_dir_id(self._dir)
+            self.name = str(self._dir.stem)
+            self._logs_path = self._dir/'logs.csv'
 
         self.model = build_unet(input_shape=self.x_train.shape[1:], filters=filters, name=self.name, activation=activation)
         return self
@@ -199,8 +177,8 @@ class UNet:
             verbose=1,
             callbacks= (
                 callbacks.CSVLogger(self._logs_path, append=True),
-                callbacks.ModelCheckpoint(os.path.join(self._path, 'weights.{epoch:04d}.h5'), verbose=0, save_weights_only=True),
-                callbacks.ModelCheckpoint(os.path.join(self._path, f'{self.name}.h5'), verbose=0, save_weights_only=False),
+                callbacks.ModelCheckpoint(self._path/'weights.{epoch:04d}.h5', verbose=0, save_weights_only=True),
+                callbacks.ModelCheckpoint(self._path/f'{self.name}.h5', verbose=0, save_weights_only=False),
                 callbacks.LambdaCallback(
                     on_epoch_end=self._on_epoch_end,
                     on_train_begin=self._on_train_begin,
@@ -214,9 +192,9 @@ class UNet:
         Carregar U-Net.
         
         Return:
-            U-Net, já compilada.
+            U-Net.
         '''
-        self.model = load_model(os.path.join(self._path, f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
+        self.model = load_model(self._path/(f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
         return self
     
     def plot(self, epoch=None):
@@ -280,4 +258,4 @@ class UNet:
         '''
         Salvar modelo.
         '''
-        return self.model.save(os.path.join(self._path, f'{self.name}.h5'))
+        return self.model.save(self._path/f'{self.name}.h5')

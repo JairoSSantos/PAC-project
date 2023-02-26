@@ -33,18 +33,29 @@ def load_by_area(area, **kwargs):
 
 def load_collection(pattern, grayscale=True, as_tensor=True, norm=True):
     collection = tf.stack(list(map(lambda path: imread(path, as_gray=grayscale), pattern)))
-
+    
     if not as_tensor:
-        collection = tf.squeeze(collection).numpy()
+        collection = np.squeeze(collection) #.numpy()
     elif len(collection.shape) < 4:
         collection = tf.expand_dims(collection, axis=-1)
-
+    
     if norm:
         cmin = np.min(collection, axis=(1, 2))[:, np.newaxis, np.newaxis]
         cmax = np.max(collection, axis=(1, 2))[:, np.newaxis, np.newaxis]
         collection = (collection - cmin)/(cmax - cmin)
 
     return collection
+
+def load_all(glob='**/*', *args, **kwargs):
+    '''
+    Carregar todas as amostras encontradas através do `glob` fornecido.
+    '''
+    jpg_files = list(Paths.DATA.glob(f'{glob}.jpg'))
+    png_files = map(lambda filename: filename.with_suffix('.png'), jpg_files)
+    return (
+        load_collection(jpg_files, *args, **kwargs),
+        load_collection(png_files, *args, **kwargs)
+    )
 
 def load_dataset(augmentation, **kwargs):
     '''
