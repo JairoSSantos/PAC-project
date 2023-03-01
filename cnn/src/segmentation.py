@@ -4,13 +4,12 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 from tensorflow.keras import Input, Model, layers, callbacks, losses
-from IPython.display import clear_output, HTML, display
 from skimage.color import label2rgb
-from typing import Any
-from .config import Paths
+from .config import Paths, add_dir_id
 from .metrics import amape
+from .visualize import TrainingBoard
 
-def conv_block(x:Any, filters:int):
+def conv_block(x, filters:int):
     '''
     Bloco de convolução (convolução -> batch normalization -> ReLu -> convolução -> batch normalization -> ReLu).
 
@@ -30,7 +29,7 @@ def conv_block(x:Any, filters:int):
         x = lay(x)
     return x
 
-def encoder(x:Any, filters:int):
+def encoder(x, filters:int):
     '''
     Camada de codificação da U-Net.
 
@@ -45,7 +44,7 @@ def encoder(x:Any, filters:int):
     x = conv_block(x, filters)
     return layers.MaxPool2D((2, 2))(x), x
 
-def decoder(x:Any, jumper:Any, filters:int):
+def decoder(x, jumper, filters:int):
     '''
     Camada de decodificação da U-Net (deconvolução + jumper -> bloco de convolução).
 
@@ -113,25 +112,6 @@ class UNet:
         Pegar atributo pertencente ao modelo (tf.keras.Model).
         '''
         return getattr(self.model, name)
-
-    def _on_epoch_end(self, epoch:int, logs:dict):
-        '''
-        Função a ser chamada durante o treinamento ao final de cada época.
-        '''
-        if not epoch%self._period: self.plot(epoch)
-        
-    def _on_train_begin(self, logs:dict):
-        '''
-        Função a ser chamada ao início do treinamento.
-        '''
-        self._dir.mkdir(exist_ok=True)
-        self.save()
-    
-    def _on_train_end(self, logs:dict):
-        '''
-        Função a ser chamada no final do treinamento.
-        '''
-        self.plot()
     
     def build(self, filters:tuple, activation:str='sigmoid'):
         '''
@@ -148,14 +128,14 @@ class UNet:
             Se name atribuido à U-Net já estiver sendo usado para salvar outro modelo, a variável será alterada e um aviso será emitido informando a alteração.
         '''
         if self._dir.exists():
-            self._dir = _add_dir_id(self._dir)
+            self._dir = add_dir_id(self._dir)
             self.name = str(self._dir.stem)
             self._logs_path = self._dir/'logs.csv'
 
         self.model = build_unet(input_shape=self.x_train.shape[1:], filters=filters, name=self.name, activation=activation)
         return self
     
-    def fit(self, epochs:int, batch_size:int, period:int=5):
+    def fit(self, epochs:int, batch_size:int, plot:bool, period:int=10, ranking:bool=False):
         '''
         Treinamento da rede.
 
@@ -166,7 +146,17 @@ class UNet:
         '''
         try: initial_epoch = pd.read_csv(self._logs_path).epoch.max()
         except FileNotFoundError: initial_epoch = 0
-        self._period = period
+
+        self._dir.mkdir(exist_ok=True)
+        self.save()
+
+        default_callbacks = [
+            callbacks.CSVLogger(self._logs_path, append=True),
+            callbacks.ModelCheckpoint(self._path/'weights.{epoch:04d}.h5', verbose=0, save_weights_only=True),
+            callbacks.ModelCheckpoint(self._path/f'{self.name}.h5', verbose=0, save_weights_only=False),
+        ]
+        if plot: default_callbacks.append(TrainingBoard(self.model, period, ranking))
+
         return self.model.fit(
             self.x_train,
             self.y_train,
@@ -174,17 +164,8 @@ class UNet:
             batch_size= batch_size,
             epochs= epochs + initial_epoch,
             initial_epoch= initial_epoch,
-            verbose=1,
-            callbacks= (
-                callbacks.CSVLogger(self._logs_path, append=True),
-                callbacks.ModelCheckpoint(self._path/'weights.{epoch:04d}.h5', verbose=0, save_weights_only=True),
-                callbacks.ModelCheckpoint(self._path/f'{self.name}.h5', verbose=0, save_weights_only=False),
-                callbacks.LambdaCallback(
-                    on_epoch_end=self._on_epoch_end,
-                    on_train_begin=self._on_train_begin,
-                    on_train_end=self._on_train_end
-                )
-            )
+            verbose= 1,
+            callbacks= default_callbacks
         )
 
     def load(self, epoch=None, **kwargs):
@@ -197,62 +178,8 @@ class UNet:
         self.model = load_model(self._path/(f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
         return self
     
-    def plot(self, epoch=None):
-        '''
-        Plotar métricas.
-        '''
-        clear_output(wait=True)
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 4))
-
-        logs = pd.read_csv(self._logs_path)
-        x_max = len(logs)
-        ax1.hlines(logs.val_loss.min(), 0, x_max, linestyles='dashdot', color='k')
-        ax1.plot(logs.loss, label='loss')
-        ax1.plot(logs.val_loss, label='val_loss')
-        ax1.set_xlim(0, x_max)
-        ax1.set_xlabel('Época')
-        ax1.set_ylabel('Loss')
-        ax1.semilogy()
-        ax1.legend()
-
-        if epoch != None: 
-            ax2.set_title('Época: %s'%epoch)
-
-        t_min, t_max = float('inf'), -float('inf') # -infinito < qualquer valor < infinito
-        for tag in ('train', 'test'):
-            x = getattr(self, 'x_%s'%tag)
-            y = getattr(self, 'y_%s'%tag) # y.shape = [N, H, W, D]
-            pred = self.model.predict(x, verbose=0)
-            true_rel_area = tf.reduce_mean(y, axis=(1, 2))[:, 0] # tf.reduce_mean(y, axis=(1, 2)).shape = [N, D]
-            pred_rel_area = tf.reduce_mean(pred, axis=(1, 2))[:, 0]
-            ax2.plot(true_rel_area, pred_rel_area, 'o', 
-                    alpha=0.5, label='{} (AMAPE = {}%)'.format(tag, np.round(logs[('val_' if tag == 'test' else '') + 'amape'].values[-1], 5)))
-            t_min = min(t_min, tf.reduce_min(true_rel_area))
-            t_max = max(t_max, tf.reduce_max(true_rel_area))
-        
-        dt = (t_max - t_min)*0.2
-        t = np.linspace(t_min - dt, t_max + dt, 10)
-        ax2.plot(t, t, 'k--', label=r'$x=y$')
-        ax2.set_xlim(t_min - dt, t_max + dt)
-        ax2.set_ylim(t_min - dt, t_max + dt)
-        ax2.set_xlabel('Método convencional')
-        ax2.set_ylabel(self.name)
-        ax2.set_aspect('equal')
-        ax2.legend()
-
-        x = self.x_test[np.random.randint(len(self.x_test))][tf.newaxis].numpy()
-        pred = self.model.predict(x, verbose=0)[0, :, :, 0]
-        ax3.imshow(label2rgb(pred > 0.5, x[0, :, :, 0], bg_label=0))
-        ax3.contour(pred, cmap='plasma')
-        ax3.grid(False)
-        ax3.axis('off')
-
-        plt.show()
-
-        display(HTML(logs[
-            (logs.val_loss == logs.val_loss.min())|
-            (logs.val_amape == logs.val_amape.min())
-        ].to_html()))
+    def get_logs(self):
+        return pd.read_csv(self._logs_path)
         
     def save(self):
         '''
