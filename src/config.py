@@ -10,9 +10,15 @@ def add_dir_id(path, verbose=True):
         warn(f'Caminho alterado de {str(path)} para {str(new_path)} devido a choque com diretórios existentes.')
     return new_path
 
+class Default:
+    image_width = 256
+    image_height = 256
+    image_size = (image_width, image_height)
+
 class Paths:
     DATA = Path('data/dataset')
     RAW = Path('data/raw')
+    PROCESSED = Path('data/processed')
     TRAIN = DATA/'train'
     TEST = DATA/'test'
     MODELS = Path('models/')

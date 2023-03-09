@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from skimage.io import imread
+from skimage.io import imread, imsave
+from skimage.transform import resize
+from scipy.ndimage import center_of_mass
 from typing import Any, Callable
-from .config import Paths
+from .config import Paths, Default
 
 def flipping_augmentation(collection, axis=(1, 2), concat_axis=0):
     '''
@@ -126,7 +128,52 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
             f'Dados para validação: {split_threshold} amostras ({split_threshold/n_files*100:.2f}%).'
         ]))
 
-def regularize_raw_data(): pass
+def regularize_raw_data(pattern=None, mode='crop'):
+    '''
+    Regularizar imagens para o padrão de treinamento.
+
+    Args:
+        pattern: Lista das amostras que serão regularizadas. Ex.: ['118.032 mm2', '64.760 mm2', ...]
+        mode: Modo com o qual as imagens raw serão ajustadas.
+            |-> 'crop': Recorta as imagens no formado padrão (256, 256) de modo com que o centro do corte corresponda ao centro de massa da máscara.
+                * Este tipo de ajuste é indicado para imagens que possuem dimensões widescreen ou semelhantes (ex.: 9:20 ou 16:9), 
+                  ou para imagens cuja a região do pellet seja pequena.
+
+            - 'resize': Redimensiona a imagem para que atenda os padrões de treinamento.
+                * Este tipo de ajuste é indicado para imagens que já possuem uma boa qualidade, 
+                  porém com dimensões diferentes daquelas utilizadas nos dados de treinamento
+    '''
+    if pattern is None: 
+        pattern = map(lambda filepath: filepath.stem, Paths.RAW.glob('*.jpg'))
+    for sample in pattern:
+        jpg_raw_file = Paths.RAW/(sample + '.jpg')
+        png_raw_file = jpg_raw_file.with_suffix('.png')
+
+        jpg_final_file = Paths.PROCESSED/(sample + '.jpg')
+        png_final_file = jpg_final_file.with_suffix('.png')
+
+        img = imread(jpg_raw_file)
+        msk = imread(png_raw_file)
+
+        if mode == 'crop':
+            y, x = center_of_mass(msk)
+            x, y = int(x), int(y)
+
+            dw = Default.image_width//2
+            dh = Default.image_height//2
+
+            imsave(jpg_final_file, imread(jpg_raw_file)[y-dh:y+dh, x-dw:x+dw])
+            imsave(png_final_file, imread(png_raw_file)[y-dh:y+dh, x-dw:x+dw])
+        
+        elif mode == 'resize':
+            w, h = img.shape[:2]
+            if w != h:
+                d = abs(w - h)
+                if w > h: img, msk = img[d:], msk[d:]
+                elif h > w: img, msk = img[:, d:], msk[:, d:]
+
+            imsave(jpg_final_file, resize(img, Default.image_size))
+            imsave(png_final_file, resize(msk, Default.image_size))
 
 def get_info():
     '''
