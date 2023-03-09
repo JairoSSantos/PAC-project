@@ -5,7 +5,7 @@ from skimage.io import imread
 from typing import Any, Callable
 from .config import Paths
 
-def flipping_augmentation(collection, axis:tuple=(1, 2), concat_axis:int=0):
+def flipping_augmentation(collection, axis=(1, 2), concat_axis=0):
     '''
     Aumento os dados espelhando as imagens.
 
@@ -70,10 +70,12 @@ def load_dataset(augmentation, **kwargs):
     '''
     # x.shape = [N, H, W, 3]
     # y.shape = [N, H, W, 1]
-    x_train = load_collection(Paths.TRAIN.glob('*.jpg'), **kwargs)
-    y_train = load_collection(Paths.TRAIN.glob('*.png'), **kwargs)
-    x_test = load_collection(Paths.TEST.glob('*.jpg'), **kwargs)
-    y_test = load_collection(Paths.TEST.glob('*.png'), **kwargs)
+    train_jpg_files = list(Paths.TRAIN.glob('*.jpg'))
+    test_jpg_files = list(Paths.TEST.glob('*.jpg'))
+    x_train = load_collection(train_jpg_files, **kwargs)
+    y_train = load_collection((filepath.with_suffix('.png') for filepath in train_jpg_files), **kwargs)
+    x_test = load_collection(test_jpg_files, **kwargs)
+    y_test = load_collection((filepath.with_suffix('.png') for filepath in test_jpg_files), **kwargs)
 
     if augmentation: # shape = [4*N, H, W, D]
         x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
@@ -102,7 +104,7 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
         seed (opcional): Seed usada para embaralhar os arquivos (obs: esta informação só será utilizada caso shuffle=True).
         verbose (opcional): Se True, informações sobre a separação dos dados serão exibidas ao final do procedimento.
     '''
-    all_jpg_files = list(Paths.DATA.glob('**\*.jpg'))
+    all_jpg_files = list(Paths.DATA.glob('**/*.jpg'))
     n_files = len(all_jpg_files)
     split_threshold = int(p*n_files)
 

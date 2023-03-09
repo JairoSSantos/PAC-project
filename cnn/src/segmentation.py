@@ -3,10 +3,8 @@ import pandas as pd
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
-from tensorflow.keras import Input, Model, layers, callbacks, losses
-from skimage.color import label2rgb
+from tensorflow.keras import Input, Model, layers, callbacks
 from .config import Paths, add_dir_id
-from .metrics import amape
 from .visualize import TrainingBoard
 
 def conv_block(x, filters:int):
@@ -152,10 +150,10 @@ class UNet:
 
         default_callbacks = [
             callbacks.CSVLogger(self._logs_path, append=True),
-            callbacks.ModelCheckpoint(self._path/'weights.{epoch:04d}.h5', verbose=0, save_weights_only=True),
-            callbacks.ModelCheckpoint(self._path/f'{self.name}.h5', verbose=0, save_weights_only=False),
+            callbacks.ModelCheckpoint(self._dir/'weights.{epoch:04d}.h5', verbose=0, save_weights_only=True),
+            callbacks.ModelCheckpoint(self._dir/f'{self.name}.h5', verbose=0, save_weights_only=False),
         ]
-        if plot: default_callbacks.append(TrainingBoard(self.model, period, ranking))
+        if plot: default_callbacks.append(TrainingBoard(self, period, ranking))
 
         return self.model.fit(
             self.x_train,
@@ -175,7 +173,7 @@ class UNet:
         Return:
             U-Net.
         '''
-        self.model = load_model(self._path/(f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
+        self.model = load_model(self._dir/(f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
         return self
     
     def get_logs(self):
@@ -185,4 +183,4 @@ class UNet:
         '''
         Salvar modelo.
         '''
-        return self.model.save(self._path/f'{self.name}.h5')
+        return self.model.save(self._dir/f'{self.name}.h5')

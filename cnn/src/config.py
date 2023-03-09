@@ -3,9 +3,9 @@ from warnings import warn
 
 def add_dir_id(path, verbose=True):
     file_id = 0
-    while path.with_stem(path.stem + str(file_id)).exists():
+    while path.with_name(path.name + str(file_id)).exists():
         file_id += 1
-    new_path = path.with_stem(path.stem + str(file_id))
+    new_path = path.with_name(path.name + str(file_id))
     if verbose:
         warn(f'Caminho alterado de {str(path)} para {str(new_path)} devido a choque com diretórios existentes.')
     return new_path
