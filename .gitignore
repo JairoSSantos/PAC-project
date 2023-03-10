@@ -1,0 +1,2 @@
+# ignorar registros de treinamento das U-Nets
+models/unet_*
