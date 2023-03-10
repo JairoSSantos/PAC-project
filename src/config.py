@@ -16,9 +16,10 @@ class Default:
     image_size = (image_width, image_height)
 
 class Paths:
-    DATA = Path('data/dataset')
-    RAW = Path('data/raw')
-    PROCESSED = Path('data/processed')
-    TRAIN = DATA/'train'
-    TEST = DATA/'test'
-    MODELS = Path('models/')
+    data = Path('data/')
+    models = Path('models/')
+    dataset = data/'dataset'
+    train = dataset/'train'
+    test = dataset/'test'
+    raw = data/'raw'
+    processed = data/'processed'

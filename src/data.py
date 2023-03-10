@@ -5,7 +5,58 @@ from skimage.io import imread, imsave
 from skimage.transform import resize
 from scipy.ndimage import center_of_mass
 from typing import Any, Callable
+from warnings import warn
 from .config import Paths, Default
+
+def add_processed_data(replace=False):
+    '''
+    Adicionar as amomstras de `processed/` para `dataset/`.
+    '''
+    for jpg_path in Paths.processd.glob('*.jpg'):
+        new_jpg_path = Paths.dataset/jpg_path.name
+
+        png_file = jpg_path.with_suffix('.png')
+        new_png_path = Paths.dataset/png_path.name
+
+        if not replace and new_jpg_path.exists():
+            warn(f'Uma amostra nomeada {jpg_path.stem} já foi adicionada ao dataset!')
+        else:
+            jpg_path.rename(new_jpg_path)
+            png_path.rename(new_png_path)
+
+def check_data_integrity(directory):
+    '''
+    Verificar integridade dos dados em um subdiretório de `data/`
+    '''
+    path = getattr(Paths, directory)
+    jpg_files = list(path.glob('**/*.jpg'))
+    png_files = list(path.glob('**/*.png'))
+    
+    print(f'Verificando integridade dos dados em {path}')
+
+    png_missing = []
+    for jpg_file in jpg_files:
+        png_file = jpg_file.with_suffix('.png')
+        if png_file not in png_files:
+            png_missing.append(str(png_file))
+
+    jpg_missing = []
+    for png_file in png_files:
+        jpg_file = png_file.with_suffix('.jpg')
+        if jpg_file not in jpg_files:
+            jpg_missing.append(str(jpg_file))
+
+    issues = False
+    if len(png_missing) > 0:
+        issues = True
+        print(f'- Máscaras não encontradas:', end='\n\t')
+        print('\n\t'.join(png_missing))
+    if len(jpg_missing) > 0:
+        issues = True
+        print(f'- Imagens não encontradas:', end='\n\t')
+        print('\n\t'.join(jpg_missing))
+    if not issues:
+        print('- Não foram encontradas incosistências neste diretório')
 
 def flipping_augmentation(collection, axis=(1, 2), concat_axis=0):
     '''
@@ -29,8 +80,8 @@ def flipping_augmentation(collection, axis=(1, 2), concat_axis=0):
 
 def load_by_area(area, **kwargs):
     return (
-        load_collection(Paths.DATA.glob(f'**/{area}.jpg'), **kwargs), 
-        load_collection(Paths.DATA.glob(f'**/{area}.png'), **kwargs)
+        load_collection(Paths.dataset.glob(f'**/{area}.jpg'), **kwargs), 
+        load_collection(Paths.dataset.glob(f'**/{area}.png'), **kwargs)
     )
 
 def load_collection(pattern, grayscale=True, as_tensor=True, norm=True):
@@ -52,7 +103,7 @@ def load_all(glob='**/*', *args, **kwargs):
     '''
     Carregar todas as amostras encontradas através do `glob` fornecido.
     '''
-    jpg_files = list(Paths.DATA.glob(f'{glob}.jpg'))
+    jpg_files = list(Paths.dataset.glob(f'{glob}.jpg'))
     png_files = map(lambda filename: filename.with_suffix('.png'), jpg_files)
     return (
         load_collection(jpg_files, *args, **kwargs),
@@ -72,8 +123,8 @@ def load_dataset(augmentation, **kwargs):
     '''
     # x.shape = [N, H, W, 3]
     # y.shape = [N, H, W, 1]
-    train_jpg_files = list(Paths.TRAIN.glob('*.jpg'))
-    test_jpg_files = list(Paths.TEST.glob('*.jpg'))
+    train_jpg_files = list(Paths.train.glob('*.jpg'))
+    test_jpg_files = list(Paths.test.glob('*.jpg'))
     x_train = load_collection(train_jpg_files, **kwargs)
     y_train = load_collection((filepath.with_suffix('.png') for filepath in train_jpg_files), **kwargs)
     x_test = load_collection(test_jpg_files, **kwargs)
@@ -88,7 +139,7 @@ def load_dataset(augmentation, **kwargs):
     return (x_train, y_train), (x_test, y_test)
 
 def load_random(n:int=1, seed:Any=None, get_area:bool=False, **kwargs):
-    jpg_files = list(Paths.DATA.glob('**/*.jpg'))
+    jpg_files = list(Paths.dataset.glob('**/*.jpg'))
     chosens = np.random.default_rng(seed).choice(jpg_files, size=n, replace=False)
     images = load_collection(chosens, **kwargs)
     labels = load_collection([jpg_file.with_suffix('.png') for jpg_file in chosens], **kwargs)
@@ -106,7 +157,7 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
         seed (opcional): Seed usada para embaralhar os arquivos (obs: esta informação só será utilizada caso shuffle=True).
         verbose (opcional): Se True, informações sobre a separação dos dados serão exibidas ao final do procedimento.
     '''
-    all_jpg_files = list(Paths.DATA.glob('**/*.jpg'))
+    all_jpg_files = list(Paths.dataset.glob('**/*.jpg'))
     n_files = len(all_jpg_files)
     split_threshold = int(p*n_files)
 
@@ -114,7 +165,7 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
         np.random.default_rng(seed).shuffle(all_jpg_files) # embaralhe as amostras, se shuffle for verdadeiro
 
     for i, jpg_file in enumerate(all_jpg_files): # enumere as informações das amostras
-        new_dir = Paths.TEST if i < split_threshold else Paths.TRAIN
+        new_dir = Paths.test if i < split_threshold else Paths.train
         png_file = jpg_file.with_suffix('.png')
 
         jpg_file.rename(new_dir/jpg_file.name)
@@ -133,7 +184,7 @@ def regularize_raw_data(pattern=None, mode='crop'):
     Regularizar imagens para o padrão de treinamento.
 
     Args:
-        pattern: Lista das amostras que serão regularizadas. Ex.: ['118.032 mm2', '64.760 mm2', ...]
+        pattern: Lista das amostras que serão regularizadas. Ex.: ['118.032_mm2', '64.760_mm2', ...]
         mode: Modo com o qual as imagens raw serão ajustadas.
             |-> 'crop': Recorta as imagens no formado padrão (256, 256) de modo com que o centro do corte corresponda ao centro de massa da máscara.
                 * Este tipo de ajuste é indicado para imagens que possuem dimensões widescreen ou semelhantes (ex.: 9:20 ou 16:9), 
@@ -144,12 +195,12 @@ def regularize_raw_data(pattern=None, mode='crop'):
                   porém com dimensões diferentes daquelas utilizadas nos dados de treinamento
     '''
     if pattern is None: 
-        pattern = map(lambda filepath: filepath.stem, Paths.RAW.glob('*.jpg'))
+        pattern = map(lambda filepath: filepath.stem, Paths.raw.glob('*.jpg'))
     for sample in pattern:
-        jpg_raw_file = Paths.RAW/(sample + '.jpg')
+        jpg_raw_file = Paths.raw/(sample + '.jpg')
         png_raw_file = jpg_raw_file.with_suffix('.png')
 
-        jpg_final_file = Paths.PROCESSED/(sample + '.jpg')
+        jpg_final_file = Paths.processed/(sample + '.jpg')
         png_final_file = jpg_final_file.with_suffix('.png')
 
         img = imread(jpg_raw_file)
@@ -179,7 +230,7 @@ def get_info():
     '''
     Pegar informações sobre as amostras do dataset.
     '''
-    return pd.read_csv(Paths.DATA/'info.csv')
+    return pd.read_csv(Paths.dataset/'info.csv')
 
 def update_info():
     '''
