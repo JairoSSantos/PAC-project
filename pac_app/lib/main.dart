@@ -1,16 +1,64 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:pac_app/pages/camera.dart';
 
-void main() => runApp(const PacApp());
+late List<CameraDescription> _cameras;
 
-class PacApp extends StatelessWidget {
-  const PacApp({super.key});
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  _cameras = await availableCameras();
+  runApp(const CameraApp());
+}
+
+/// CameraApp is the Main Application.
+class CameraApp extends StatefulWidget {
+  /// Default Constructor
+  const CameraApp({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context){
-    return const MaterialApp(
-      title: 'Pellet Area Calculator',
-      home: CameraPage()
+  State<CameraApp> createState() => _CameraAppState();
+}
+
+class _CameraAppState extends State<CameraApp> {
+  late CameraController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = CameraController(_cameras[0], ResolutionPreset.max, enableAudio: false);
+    controller.initialize().then((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+    }).catchError((Object e) {
+      if (e is CameraException) {
+        switch (e.code) {
+          case 'CameraAccessDenied':
+            // Handle access errors here.
+            break;
+          default:
+            // Handle other errors here.
+            break;
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!controller.value.isInitialized) {
+      return Container();
+    }
+    return MaterialApp(
+      home: CameraPage(controller: controller)
     );
   }
 }
