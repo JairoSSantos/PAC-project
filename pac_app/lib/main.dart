@@ -1,6 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:pac_app/pages/camera.dart';
+import 'package:pac_app/pages/home_page.dart';
 
 late List<CameraDescription> _cameras;
 
@@ -8,19 +8,17 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   _cameras = await availableCameras();
-  runApp(const CameraApp());
+  runApp(const App());
 }
 
-/// CameraApp is the Main Application.
-class CameraApp extends StatefulWidget {
-  /// Default Constructor
-  const CameraApp({Key? key}) : super(key: key);
+class App extends StatefulWidget {
+  const App({Key? key}): super(key: key);
 
   @override
-  State<CameraApp> createState() => _CameraAppState();
+  State<App> createState() => _AppState();
 }
 
-class _CameraAppState extends State<CameraApp> {
+class _AppState extends State<App> {
   late CameraController controller;
 
   @override
@@ -58,7 +56,7 @@ class _CameraAppState extends State<CameraApp> {
       return Container();
     }
     return MaterialApp(
-      home: CameraPage(controller: controller)
+      home: HomePage(controller: controller)
     );
   }
 }
