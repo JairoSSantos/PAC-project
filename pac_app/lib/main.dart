@@ -2,17 +2,18 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:pac_app/pages/home_page.dart';
 
-late List<CameraDescription> _cameras;
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  _cameras = await availableCameras();
-  runApp(const App());
+  final cameras = await availableCameras();
+
+  runApp(App(camera: cameras.first));
 }
 
 class App extends StatefulWidget {
-  const App({Key? key}): super(key: key);
+  final CameraDescription camera;
+
+  const App({super.key, required this.camera});
 
   @override
   State<App> createState() => _AppState();
@@ -24,7 +25,7 @@ class _AppState extends State<App> {
   @override
   void initState() {
     super.initState();
-    controller = CameraController(_cameras[0], ResolutionPreset.max, enableAudio: false);
+    controller = CameraController(widget.camera, ResolutionPreset.max, enableAudio: false);
     controller.initialize().then((_) {
       if (!mounted) {
         return;
@@ -54,9 +55,10 @@ class _AppState extends State<App> {
   Widget build(BuildContext context) {
     if (!controller.value.isInitialized) {
       return Container();
+    } else {
+      return MaterialApp(
+        home: HomePage(controller: controller)
+      );
     }
-    return MaterialApp(
-      home: HomePage(controller: controller)
-    );
   }
 }
