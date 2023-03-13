@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:pac_app/config.dart';
+import 'dart:io';
 
 class InfoPage extends StatefulWidget {
-  const InfoPage({super.key});
+  final String imagePath;
+
+  const InfoPage({super.key, required this.imagePath});
 
   @override
   State<InfoPage> createState() => _InfoPageState();
@@ -17,7 +21,6 @@ class _InfoPageState extends State<InfoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Resultado'),
@@ -33,8 +36,12 @@ class _InfoPageState extends State<InfoPage> {
       ),
       body: Column(
         children: <Widget>[
-          const Placeholder(),
-          Container(
+          Image.file(File(widget.imagePath), 
+            fit: BoxFit.cover, 
+            width: getImageWidth(), 
+            height: getImageHeight()
+          ),
+          SizedBox(
             height: 300,
             child: ListView.builder(
                 itemBuilder: (context, index) => Card(child: ListTile(title: Text(_infoMessages[index]))), 

@@ -1,9 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/info_page.dart';
-
-const double _imageWidth = 256;
-const double _imageHeight = 256;
 
 class HomePage extends StatefulWidget {
   final CameraController controller;
@@ -15,8 +13,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late Offset _center;
-
   // sincronizado com: FlashMode.values = [off, auto, always, torch]
   final _flashIcons = <Icon>[
     const Icon(Icons.flash_off), // não usar flash
@@ -28,9 +24,6 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    _center = Offset(size.width/2, size.height/2);
-
     /*widget.controller.setFocusPoint(Offset(
       _center.dx / size.width,
       _center.dy / (size.width * widget.controller.value.aspectRatio)
@@ -45,8 +38,8 @@ class _HomePageState extends State<HomePage> {
         children: <Widget>[
           Center(child: CameraPreview(widget.controller)),
           Center(child: Container(
-            width: _imageWidth,
-            height: _imageHeight,
+            width: getImageWidth(),
+            height: getImageHeight(),
             decoration: BoxDecoration(
                 shape: BoxShape.rectangle, 
                 border: Border.all(color: Colors.red, width: 3)
@@ -70,12 +63,20 @@ class _HomePageState extends State<HomePage> {
           FloatingActionButton(
             backgroundColor: Colors.white,
             foregroundColor: Colors.grey,
-            onPressed: () {
-              widget.controller.resumePreview();
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const InfoPage())
-              );
+            onPressed: () async {
+              late XFile imageFile;
+              try{
+                imageFile = await widget.controller.takePicture();
+              } catch (e) {
+                debugPrint(e.toString());
+              } finally {
+                debugPrint(imageFile.path);
+                widget.controller.resumePreview();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => InfoPage(imagePath: imageFile.path))
+                );
+              }
             },
             heroTag: 'camera',
             child: const Icon(Icons.camera_alt_outlined)
