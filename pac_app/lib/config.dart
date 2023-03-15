@@ -20,22 +20,18 @@ double getImageHeight() => _imageHeight;
 
 double getImageWidth() => _imageWidth;
 
-int getResolutionIndex() => _resolutionIndex;
+ResolutionPreset getResolution() => ResolutionPreset.values[_resolutionIndex];
 
-Size? getResolutionSize() => _resolutionSize[ResolutionPreset.values[getResolutionIndex()]];
+Size? getResolutionSize() => _resolutionSize[getResolution()];
 
 Future<void> regularizeImage(String imagePath) async {
-  final resolution = getResolutionSize();
-
-  int offsetX = (resolution?.width ?? 0)~/2 - getImageWidth()~/ 2;
-  int offsetY = (resolution?.height ?? 0)~/2 - getImageHeight()~/ 2;
-
   final imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
+  final resolution = getResolutionSize();
 
   img.Image cropOne = img.copyCrop(
     imageBytes,
-    x: offsetX,
-    y: offsetY,
+    x: ((resolution?.width ?? 0) - getImageWidth())~/2,
+    y: ((resolution?.height ?? 0) - getImageHeight())~/2,
     width: getImageWidth().toInt(),
     height: getImageHeight().toInt(), 
   );

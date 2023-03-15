@@ -36,7 +36,7 @@ class _HomePageState extends State<HomePage> {
 
     widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
 
-    final resolution = getResolutionSize();
+    final alpha = size.width/(getResolutionSize()?.width ?? 1);
 
     return Scaffold(
       appBar: AppBar(
@@ -44,8 +44,8 @@ class _HomePageState extends State<HomePage> {
       body: Center(child: CameraPreview(
         widget.controller,
         child: Center(child: Container(
-            width: getImageWidth()*size.width/(resolution?.width ?? 1),
-            height: getImageHeight()*size.height/(resolution?.height ?? 1),
+            width: getImageWidth()*alpha,
+            height: getImageHeight()*alpha,
             decoration: BoxDecoration(
                 shape: BoxShape.rectangle, 
                 border: Border.all(color: Colors.red, width: 3)
@@ -76,9 +76,8 @@ class _HomePageState extends State<HomePage> {
               } catch (e) {
                 debugPrint(e.toString());
               } finally {
-                debugPrint(resolution.toString());
-                debugPrint(widget.controller.value.previewSize.toString());
-                debugPrint('Screen: $size');
+                debugPrint('PreviewSize: ${widget.controller.value.previewSize.toString()}');
+                debugPrint('ScreenSize: $size');
                 debugPrint(imageFile.path);
                 widget.controller.resumePreview();
                 Navigator.push(

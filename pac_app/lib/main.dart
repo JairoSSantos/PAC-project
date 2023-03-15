@@ -27,7 +27,7 @@ class _AppState extends State<App> {
   @override
   void initState() {
     super.initState();
-    controller = CameraController(widget.camera, ResolutionPreset.values[getResolutionIndex()], enableAudio: false);
+    controller = CameraController(widget.camera, getResolution(), enableAudio: false);
     controller.initialize().then((_) {
       if (!mounted) {
         return;
