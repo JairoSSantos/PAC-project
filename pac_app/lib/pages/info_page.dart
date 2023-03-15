@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:pac_app/config.dart';
-import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'dart:io';
+//import 'package:pac_app/config.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_speed_dial/flutter_speed_dial.dart';
+import 'package:gallery_saver/gallery_saver.dart';
 
 // ignore: must_be_immutable
 class InfoPage extends StatefulWidget {
@@ -23,17 +24,19 @@ class _InfoPageState extends State<InfoPage> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Resultado')),
       body: Column(
         children: <Widget>[
-          Image.file(File(widget.imagePath), 
-            /*fit: BoxFit.contain, 
-            width: getImageWidth(), 
-            height: getImageHeight()*/
+          Image.file(File(widget.imagePath),
+            width: size.width,
+            height: size.width,
+            fit: BoxFit.fill
           ),
-          SizedBox(
-            height: 350,
+          Expanded(
+            //height: 300,
             child: ListView.builder(
                 itemBuilder: (context, index) => Card(child: ListTile(title: Text(_infoMessages[index]))), 
                 itemCount: _infoMessages.length
@@ -46,6 +49,12 @@ class _InfoPageState extends State<InfoPage> {
         children: <SpeedDialChild>[
           SpeedDialChild(
             label: 'Salvar imagem',
+            onTap: () => GallerySaver.saveImage(widget.imagePath, albumName: 'PAC').then(
+              (path) {
+                const snackBar = SnackBar(content: Text('Imagem salva!'));
+                ScaffoldMessenger.of(context).showSnackBar(snackBar);
+              }
+            ),
             child: const Icon(Icons.add_photo_alternate_outlined)
           ),
           SpeedDialChild(

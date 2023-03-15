@@ -24,6 +24,8 @@ class _HomePageState extends State<HomePage> {
   ];
   var _flashModeIndex = 0; // iniciar com FlashMode.off
 
+  var isLoading = false;
+
   @override
   Widget build(BuildContext context) {
 
@@ -41,18 +43,23 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pellet Area Calculator')),
-      body: Center(child: CameraPreview(
-        widget.controller,
-        child: Center(child: Container(
-            width: getImageWidth()*alpha,
-            height: getImageHeight()*alpha,
-            decoration: BoxDecoration(
-                shape: BoxShape.rectangle, 
-                border: Border.all(color: Colors.red, width: 3)
-              ),
-            child: const Center(child: Icon(Icons.add, color: Colors.red)),
-          ))
-      )),
+      body: Center(child: 
+        isLoading ?
+        const CircularProgressIndicator() :
+        CameraPreview(
+          widget.controller,
+          child: Center(child: Container(
+              width: getImageWidth()*alpha,
+              height: getImageHeight()*alpha,
+              decoration: BoxDecoration(
+                  shape: BoxShape.rectangle, 
+                  border: Border.all(color: Colors.red, width: 3)
+                ),
+              child: const Center(child: Icon(Icons.add, color: Colors.red)),
+            )
+          )
+        )
+      ),
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: <Widget>[
@@ -71,14 +78,17 @@ class _HomePageState extends State<HomePage> {
             onPressed: () async {
               late XFile imageFile;
               try{
+                setState((){
+                  isLoading = true;
+                });
                 imageFile = await widget.controller.takePicture();
                 await regularizeImage(imageFile.path);
               } catch (e) {
                 debugPrint(e.toString());
               } finally {
-                debugPrint('PreviewSize: ${widget.controller.value.previewSize.toString()}');
-                debugPrint('ScreenSize: $size');
-                debugPrint(imageFile.path);
+                setState((){
+                  isLoading = false;
+                });
                 widget.controller.resumePreview();
                 Navigator.push(
                   context,
