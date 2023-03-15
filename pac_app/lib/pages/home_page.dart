@@ -2,6 +2,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/info_page.dart';
+import 'dart:io' show Platform;
 
 class HomePage extends StatefulWidget {
   final CameraController controller;
@@ -13,6 +14,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+
   // sincronizado com: FlashMode.values = [off, auto, always, torch]
   final _flashIcons = <Icon>[
     const Icon(Icons.flash_off), // não usar flash
@@ -24,6 +26,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+
+    final size = MediaQuery.of(context).size;
     /*widget.controller.setFocusPoint(Offset(
       _center.dx / size.width,
       _center.dy / (size.width * widget.controller.value.aspectRatio)
@@ -32,22 +36,23 @@ class _HomePageState extends State<HomePage> {
 
     widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
 
+    final resolution = getResolutionSize();
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Pellet Area Calculator')),
-      body: Stack(
-        children: <Widget>[
-          Center(child: CameraPreview(widget.controller)),
-          Center(child: Container(
-            width: getImageWidth(),
-            height: getImageHeight(),
+      appBar: AppBar(
+        title: const Text('Pellet Area Calculator')),
+      body: Center(child: CameraPreview(
+        widget.controller,
+        child: Center(child: Container(
+            width: getImageWidth()*size.width/(resolution?.width ?? 1),
+            height: getImageHeight()*size.height/(resolution?.height ?? 1),
             decoration: BoxDecoration(
                 shape: BoxShape.rectangle, 
                 border: Border.all(color: Colors.red, width: 3)
               ),
             child: const Center(child: Icon(Icons.add, color: Colors.red)),
           ))
-        ]
-      ),
+      )),
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: <Widget>[
@@ -67,9 +72,13 @@ class _HomePageState extends State<HomePage> {
               late XFile imageFile;
               try{
                 imageFile = await widget.controller.takePicture();
+                await regularizeImage(imageFile.path);
               } catch (e) {
                 debugPrint(e.toString());
               } finally {
+                debugPrint(resolution.toString());
+                debugPrint(widget.controller.value.previewSize.toString());
+                debugPrint('Screen: $size');
                 debugPrint(imageFile.path);
                 widget.controller.resumePreview();
                 Navigator.push(

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:pac_app/config.dart';
+import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'dart:io';
 
+// ignore: must_be_immutable
 class InfoPage extends StatefulWidget {
-  final String imagePath;
+  late String imagePath;
 
-  const InfoPage({super.key, required this.imagePath});
+  InfoPage({super.key, required this.imagePath});
 
   @override
   State<InfoPage> createState() => _InfoPageState();
@@ -22,34 +24,40 @@ class _InfoPageState extends State<InfoPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Resultado'),
-        actions: <Widget>[
-          PopupMenuButton(
-            itemBuilder: (context) => [
-              const PopupMenuItem(child: Text('Salvar imagem')),
-              const PopupMenuItem(child: Text('Salvar resultado como imagem')),
-              const PopupMenuItem(child: Text('Salvar resultado como PDF'))
-            ]
-          )
-        ]
-      ),
+      appBar: AppBar(title: const Text('Resultado')),
       body: Column(
         children: <Widget>[
           Image.file(File(widget.imagePath), 
-            fit: BoxFit.cover, 
+            /*fit: BoxFit.contain, 
             width: getImageWidth(), 
-            height: getImageHeight()
+            height: getImageHeight()*/
           ),
           SizedBox(
-            height: 300,
+            height: 350,
             child: ListView.builder(
                 itemBuilder: (context, index) => Card(child: ListTile(title: Text(_infoMessages[index]))), 
                 itemCount: _infoMessages.length
             )
           )
         ]
-      )
+      ),
+      floatingActionButton: SpeedDial(
+        icon: Icons.save,
+        children: <SpeedDialChild>[
+          SpeedDialChild(
+            label: 'Salvar imagem',
+            child: const Icon(Icons.add_photo_alternate_outlined)
+          ),
+          SpeedDialChild(
+            label: 'Salvar resultado como imagem',
+            child: const Icon(Icons.photo_library_outlined)
+          ),
+          SpeedDialChild(
+            label: 'Salvar resultado como pdf',
+            child: const Icon(Icons.picture_as_pdf_outlined)
+          )
+        ]
+      ),
     );
   }
 }

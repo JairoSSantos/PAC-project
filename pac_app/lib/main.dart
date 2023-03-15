@@ -1,6 +1,8 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/home_page.dart';
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +27,7 @@ class _AppState extends State<App> {
   @override
   void initState() {
     super.initState();
-    controller = CameraController(widget.camera, ResolutionPreset.max, enableAudio: false);
+    controller = CameraController(widget.camera, ResolutionPreset.values[getResolutionIndex()], enableAudio: false);
     controller.initialize().then((_) {
       if (!mounted) {
         return;
