@@ -24,17 +24,45 @@ ResolutionPreset getResolution() => ResolutionPreset.values[_resolutionIndex];
 
 Size? getResolutionSize() => _resolutionSize[getResolution()];
 
-Future<void> regularizeImage(String imagePath) async {
+Size getImageSize(String imagePath){
   final imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
-  final resolution = getResolutionSize();
+  return Size(
+    imageBytes.width.toDouble(),
+    imageBytes.height.toDouble()
+  );
+}
+
+Future<void> regularizeImage(String imagePath, {double? left, double? top, String? finalPath}) async {
+  final imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
+
+  debugPrint('Center: ($left, $top) Size: (${imageBytes.width}, ${imageBytes.height})');
 
   img.Image cropOne = img.copyCrop(
     imageBytes,
-    x: ((resolution?.width ?? 0) - getImageWidth())~/2,
-    y: ((resolution?.height ?? 0) - getImageHeight())~/2,
+    x: left?.toInt() ?? (imageBytes.width - getImageWidth())~/2,
+    y: top?.toInt() ?? (imageBytes.height - getImageHeight())~/2,
     width: getImageWidth().toInt(),
     height: getImageHeight().toInt(), 
   );
 
-  File(imagePath).writeAsBytes(img.encodeJpg(cropOne));
+  File(finalPath ?? imagePath).writeAsBytes(img.encodeJpg(cropOne));
+}
+
+class PelletField extends StatelessWidget {
+  final Size size;
+
+  const PelletField({super.key, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size.width,
+      height: size.height,
+      decoration: BoxDecoration(
+          shape: BoxShape.rectangle, 
+          border: Border.all(color: Colors.red, width: 3)
+        ),
+      child: const Center(child: Icon(Icons.add, color: Colors.red))
+    );
+  }
 }

@@ -1,8 +1,8 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/info_page.dart';
-import 'dart:io' show Platform;
 
 class HomePage extends StatefulWidget {
   final CameraController controller;
@@ -24,7 +24,7 @@ class _HomePageState extends State<HomePage> {
   ];
   var _flashModeIndex = 0; // iniciar com FlashMode.off
 
-  var isLoading = false;
+  var _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -44,19 +44,14 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Pellet Area Calculator')),
       body: Center(child: 
-        isLoading ?
+        _isLoading ?
         const CircularProgressIndicator() :
         CameraPreview(
           widget.controller,
-          child: Center(child: Container(
-              width: getImageWidth()*alpha,
-              height: getImageHeight()*alpha,
-              decoration: BoxDecoration(
-                  shape: BoxShape.rectangle, 
-                  border: Border.all(color: Colors.red, width: 3)
-                ),
-              child: const Center(child: Icon(Icons.add, color: Colors.red)),
-            )
+          child: Center(child: PelletField(size: Size(
+              getImageWidth()*alpha,
+              getImageHeight()*alpha,
+            )),
           )
         )
       ),
@@ -76,23 +71,23 @@ class _HomePageState extends State<HomePage> {
             backgroundColor: Colors.white,
             foregroundColor: Colors.grey,
             onPressed: () async {
-              late XFile imageFile;
+              late XFile imageXFile;
               try{
                 setState((){
-                  isLoading = true;
+                  _isLoading = true;
                 });
-                imageFile = await widget.controller.takePicture();
-                await regularizeImage(imageFile.path);
+                imageXFile = await widget.controller.takePicture();
+                await regularizeImage(imageXFile.path);
               } catch (e) {
                 debugPrint(e.toString());
               } finally {
                 setState((){
-                  isLoading = false;
+                  _isLoading = false;
                 });
                 widget.controller.resumePreview();
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => InfoPage(imagePath: imageFile.path))
+                  MaterialPageRoute(builder: (context) => InfoPage(imagePath: imageXFile.path))
                 );
               }
             },
@@ -101,7 +96,20 @@ class _HomePageState extends State<HomePage> {
           ),
           FloatingActionButton(
             backgroundColor: Colors.transparent,
-            onPressed: (){},
+            onPressed: () async {
+              widget.controller.resumePreview();
+              ImagePicker().pickImage(
+                source: ImageSource.gallery
+                ).then((imageXFile) {
+                  if (imageXFile != null){
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => Cropper(imageXFile: imageXFile))
+                    );
+                  }
+                }
+              );
+            },
             heroTag: 'gellery',
             child: const Icon(Icons.photo),
           ),
