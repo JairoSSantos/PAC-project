@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/info_page.dart';
+import 'package:pac_app/pages/cropper_page.dart';
 
 class HomePage extends StatefulWidget {
   final CameraController controller;
@@ -22,37 +23,37 @@ class _HomePageState extends State<HomePage> {
     const Icon(Icons.flash_on), // usar flash quando tirar a foto
     const Icon(Icons.flare_sharp) // manter flash ligado
   ];
-  var _flashModeIndex = 0; // iniciar com FlashMode.off
 
+  var _flashModeIndex = 0; // iniciar com FlashMode.off
   var _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
 
-    final size = MediaQuery.of(context).size;
+    final screenSize = MediaQuery.of(context).size;
     /*widget.controller.setFocusPoint(Offset(
-      _center.dx / size.width,
-      _center.dy / (size.width * widget.controller.value.aspectRatio)
+      _center.dx / screenSize.width,
+      _center.dy / (screenSize.width * widget.controller.value.aspectRatio)
     ));
     widget.controller.setFocusMode(FocusMode.locked);*/
 
     widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
 
-    final alpha = size.width/(getResolutionSize()?.width ?? 1);
+    final _targetScaller = screenSize.width/(Default.getResolutionSize()?.width ?? 1);
+    final pelletField = Target(
+      width: Default.imageWidth*_targetScaller,
+      height: Default.imageHeight*_targetScaller
+    );
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pellet Area Calculator')),
+        title: const Text('Pellet Area Calculator'),
+      ),
       body: Center(child: 
-        _isLoading ?
-        const CircularProgressIndicator() :
+        _isLoading ? const CircularProgressIndicator() :
         CameraPreview(
           widget.controller,
-          child: Center(child: PelletField(size: Size(
-              getImageWidth()*alpha,
-              getImageHeight()*alpha,
-            )),
-          )
+          child: pelletField
         )
       ),
       floatingActionButton: Row(
@@ -77,7 +78,11 @@ class _HomePageState extends State<HomePage> {
                   _isLoading = true;
                 });
                 imageXFile = await widget.controller.takePicture();
-                await regularizeImage(imageXFile.path);
+                await regularizeImage(
+                  imageXFile.path,
+                  width: Default.imageWidth * pelletField.scaleFactor,
+                  height: Default.imageHeight * pelletField.scaleFactor
+                );
               } catch (e) {
                 debugPrint(e.toString());
               } finally {
