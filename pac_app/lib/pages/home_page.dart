@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/info_page.dart';
-import 'package:pac_app/pages/cropper_page.dart';
+//import 'package:pac_app/pages/cropper_page.dart';
+import 'package:image_cropper/image_cropper.dart';
+
 
 class HomePage extends StatefulWidget {
   final CameraController controller;
@@ -39,10 +41,10 @@ class _HomePageState extends State<HomePage> {
 
     widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
 
-    final _targetScaller = screenSize.width/(Default.getResolutionSize()?.width ?? 1);
-    final pelletField = Target(
-      width: Default.imageWidth*_targetScaller,
-      height: Default.imageHeight*_targetScaller
+    final targetScaller = screenSize.width/(Default.getResolutionSize()?.width ?? 1);
+    final target = Target(
+      width: Default.imageWidth*targetScaller,
+      height: Default.imageHeight*targetScaller
     );
 
     return Scaffold(
@@ -53,7 +55,7 @@ class _HomePageState extends State<HomePage> {
         _isLoading ? const CircularProgressIndicator() :
         CameraPreview(
           widget.controller,
-          child: pelletField
+          child: target
         )
       ),
       floatingActionButton: Row(
@@ -78,11 +80,13 @@ class _HomePageState extends State<HomePage> {
                   _isLoading = true;
                 });
                 imageXFile = await widget.controller.takePicture();
-                await regularizeImage(
-                  imageXFile.path,
-                  width: Default.imageWidth * pelletField.scaleFactor,
-                  height: Default.imageHeight * pelletField.scaleFactor
-                );
+                Regularizer(imagePath: imageXFile.path)
+                  ..crop(
+                    width: Default.imageWidth * target.scaleFactor,
+                    height: Default.imageHeight * target.scaleFactor 
+                  )
+                  ..resize()
+                  ..save();
               } catch (e) {
                 debugPrint(e.toString());
               } finally {
@@ -107,9 +111,20 @@ class _HomePageState extends State<HomePage> {
                 source: ImageSource.gallery
                 ).then((imageXFile) {
                   if (imageXFile != null){
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => Cropper(imageXFile: imageXFile))
+                    ImageCropper().cropImage(
+                      sourcePath: imageXFile.path,
+                      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
+                    ).then((CroppedFile? croppedFile) {
+                        if (croppedFile != null){
+                          Regularizer(imagePath: croppedFile.path)
+                            ..resize()
+                            ..save();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => InfoPage(imagePath: croppedFile.path))
+                          );
+                        }
+                      }
                     );
                   }
                 }

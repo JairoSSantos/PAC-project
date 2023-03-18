@@ -30,28 +30,46 @@ Size getImageSize(String imagePath){
   );
 }
 
-Future<void> regularizeImage(String imagePath, {double? left, double? top, double width = Default.imageWidth, double height = Default.imageHeight, String? finalPath}) async {
-  final imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
+class Regularizer {
+  final String imagePath;
+  late String? savePath;
+  late img.Image imageBytes;
+  
+  Regularizer({required this.imagePath, this.savePath}){
+    imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
+  }
 
-  //debugPrint('Center: ($left, $top) Size: (${imageBytes.width}, ${imageBytes.height})');
+  void crop({double? left, double? top, double? width, double? height}){
+    /*
+    Se [left] e [top] não forem passados, o corte será centralizado na imagem.
+    Se [width] e [height] não forem passados, o tamanho do corte será o padrão.
+    */
+    width = width ?? Default.imageWidth;
+    height = height ?? Default.imageHeight;
 
-  img.Image cropOne = img.copyCrop(
-    imageBytes,
-    x: left?.toInt() ?? (imageBytes.width - width)~/2,
-    y: top?.toInt() ?? (imageBytes.height - height)~/2,
-    width: width.toInt(),
-    height: height.toInt(), 
-  );
-
-  if (cropOne.width != Default.imageWidth || cropOne.height != Default.imageHeight) {
-    cropOne = img.copyResize(
-      cropOne,
-      width: Default.imageWidth.toInt(),
-      height: Default.imageWidth.toInt()
+    imageBytes = img.copyCrop(
+      imageBytes,
+      x: left?.toInt() ?? (imageBytes.width - width)~/2,
+      y: top?.toInt() ?? (imageBytes.height - height)~/2,
+      width: width.toInt(),
+      height: height.toInt(), 
     );
   }
 
-  File(finalPath ?? imagePath).writeAsBytes(img.encodeJpg(cropOne));
+  void resize({double? width, double? height}){
+    /*
+    Se [width] e [height] não forem passados, o tamanho do corte será o padrão.
+    */
+    imageBytes = img.copyResize(
+      imageBytes,
+      width: (width ?? Default.imageWidth).toInt(),
+      height: (height ?? Default.imageHeight).toInt(),
+    );
+  }
+
+  void save() async {
+    await File(savePath ?? imagePath).writeAsBytes(img.encodeJpg(imageBytes));
+  }
 }
 
 // ignore: must_be_immutable
@@ -85,7 +103,7 @@ class _TargetState extends State<Target> {
           child: Container(
             decoration: BoxDecoration(
               shape: BoxShape.rectangle, 
-              border: Border.all(color: Colors.white60, width: 1.5, )
+              border: Border.all(color: Colors.white60, width: 1.5)
             ),
             child: Container(
               width: widget.width * widget.scaleFactor,
