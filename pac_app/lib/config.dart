@@ -32,10 +32,9 @@ Size getImageSize(String imagePath){
 
 class Regularizer {
   final String imagePath;
-  late String? savePath;
   late img.Image imageBytes;
   
-  Regularizer({required this.imagePath, this.savePath}){
+  Regularizer({required this.imagePath}){
     imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
   }
 
@@ -67,7 +66,7 @@ class Regularizer {
     );
   }
 
-  void save() async {
+  void save({String? savePath}) async {
     await File(savePath ?? imagePath).writeAsBytes(img.encodeJpg(imageBytes));
   }
 }
@@ -96,14 +95,37 @@ class _TargetState extends State<Target> {
     super.initState();
   }
 
+  void initZoom(_) => setState(() {
+    _baseScaleFactor = widget.scaleFactor;
+  });
+
+  void updateZoom(details) => setState(() {
+    if (_zoomMode) {
+      widget.scaleFactor = (_baseScaleFactor * details.scale).clamp(1, 5);
+    }
+  });
+
+  void resetZoomState() => setState(() {
+    _baseScaleFactor = widget.scaleFactor = 1;
+  });
+
+  void setZoomMode({bool? value}) => setState(() {
+    _zoomMode = value ?? !_zoomMode;
+  });
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      onScaleStart: initZoom,
+      onScaleUpdate: updateZoom,
+      onTap: setZoomMode,
+      onDoubleTap: resetZoomState,
+      onScaleEnd: (_) => setZoomMode(value: false),
       child: Center(
           child: Container(
             decoration: BoxDecoration(
               shape: BoxShape.rectangle, 
-              border: Border.all(color: Colors.white60, width: 1.5)
+              border: Border.all(color: Colors.white, width: 1.5)
             ),
             child: Container(
               width: widget.width * widget.scaleFactor,
@@ -116,23 +138,6 @@ class _TargetState extends State<Target> {
             )
           )
         ),
-      onScaleStart: (details) => setState(() {
-        _baseScaleFactor = widget.scaleFactor;
-      }),
-      onScaleUpdate: (details) => setState(() {
-        if (_zoomMode) {
-          widget.scaleFactor = (_baseScaleFactor * details.scale).clamp(1, 5);
-        }
-      }),
-      onDoubleTap: () => setState(() {
-        _baseScaleFactor = widget.scaleFactor = 1;
-      }),
-      onTap: () => setState(() {
-        _zoomMode = false;
-      }),
-      onLongPress: () => setState(() {
-        _zoomMode = true;
-      }),
     );
   }
 }

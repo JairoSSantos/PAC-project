@@ -1,11 +1,10 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/info_page.dart';
-//import 'package:pac_app/pages/cropper_page.dart';
 import 'package:image_cropper/image_cropper.dart';
-
 
 class HomePage extends StatefulWidget {
   final CameraController controller;
@@ -26,19 +25,107 @@ class _HomePageState extends State<HomePage> {
     const Icon(Icons.flare_sharp) // manter flash ligado
   ];
 
-  var _flashModeIndex = 0; // iniciar com FlashMode.off
-  var _isLoading = false;
+  late int _flashModeIndex;
+  late bool _isLoading;
+  late double _baseScaleZoom;
+  late double _scaleZoom;
+  var _maxScaleZoom = 1.0;
+
+  @override
+  void initState(){
+    super.initState();
+    _flashModeIndex = 0; // iniciar com FlashMode.off
+    _isLoading = false;
+    widget.controller.getMinZoomLevel().then(
+      (value) {
+        _baseScaleZoom = _scaleZoom = value;
+      }
+    );
+    widget.controller.getMaxZoomLevel().then(
+      (value){
+        _maxScaleZoom = value;
+      }
+    );
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp
+    ]);
+  }
+
+  void setLoading({bool? value}) => setState((){
+    _isLoading = value ?? !_isLoading;
+  });
+
+  void updateFlashMode() => setState((){
+      _flashModeIndex = (_flashModeIndex + 1) % FlashMode.values.length;
+      widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
+  });
+
+  void takePicture(BuildContext context, {required double width, required double height}) {
+    widget.controller.takePicture().then(
+      (XFile imageXFile) {
+        setLoading(value: true);
+        widget.controller.pausePreview();
+        Regularizer(imagePath: imageXFile.path)
+          ..crop(width: width, height: height)
+          ..resize()
+          ..save();
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => InfoPage(
+              imagePath: imageXFile.path
+            )
+          )
+        ).whenComplete(() {
+          widget.controller.resumePreview();
+          setLoading(value: false);
+        });
+      },
+      onError: (error) => showDialog(
+        context: context, 
+        builder: (context) => AlertDialog(
+          title: const Text('Erro ao tirar foto!'),
+          content: Text(error.toString())
+        )
+      )
+    );
+  }
+
+  void pickImage(BuildContext context){
+    widget.controller.pausePreview();
+    ImagePicker().pickImage(
+      source: ImageSource.gallery
+    ).then((XFile? imageXFile) {
+      if (imageXFile != null){
+        ImageCropper().cropImage(
+          sourcePath: imageXFile.path,
+          aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
+        ).then((CroppedFile? croppedFile) {
+          if (croppedFile != null){
+            Regularizer(imagePath: croppedFile.path)
+              ..resize()
+              ..save();
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => InfoPage(
+                  imagePath: croppedFile.path
+                )
+              )
+            );
+          }
+        });
+      }
+    }).whenComplete(
+      () => widget.controller.resumePreview()
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
 
     final screenSize = MediaQuery.of(context).size;
-    /*widget.controller.setFocusPoint(Offset(
-      _center.dx / screenSize.width,
-      _center.dy / (screenSize.width * widget.controller.value.aspectRatio)
-    ));
-    widget.controller.setFocusMode(FocusMode.locked);*/
-
+    widget.controller.setFocusPoint(const Offset(0.5, 0.5));
     widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
 
     final targetScaller = screenSize.width/(Default.getResolutionSize()?.width ?? 1);
@@ -48,95 +135,56 @@ class _HomePageState extends State<HomePage> {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pellet Area Calculator'),
-      ),
-      body: Center(child: 
-        _isLoading ? const CircularProgressIndicator() :
-        CameraPreview(
-          widget.controller,
-          child: target
-        )
+      appBar: AppBar(title: const Text('Pellet Area Calculator')),
+      backgroundColor: Colors.grey[400],
+      body: Center(
+        child: _isLoading ? 
+        const CircularProgressIndicator() :
+        GestureDetector(
+          child: CameraPreview(
+            widget.controller,
+            child: target
+          ),
+          onScaleStart: (details) {
+            _baseScaleZoom = _scaleZoom;
+          },
+          onScaleUpdate: (details) {
+            _scaleZoom = (_baseScaleZoom * details.scale).clamp(1, _maxScaleZoom);
+            widget.controller.setZoomLevel(_scaleZoom);
+          }
+        ),
       ),
       floatingActionButton: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: <Widget>[
           FloatingActionButton(
-            backgroundColor: Colors.transparent,
-            onPressed: () => setState((){
-                _flashModeIndex = (_flashModeIndex + 1) % FlashMode.values.length;
-                widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
-            }),
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.blue,
+            onPressed: () => updateFlashMode(),
             heroTag: 'flash',
             child: _flashIcons[_flashModeIndex],
           ),
           FloatingActionButton(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.grey,
-            onPressed: () async {
-              late XFile imageXFile;
-              try{
-                setState((){
-                  _isLoading = true;
-                });
-                imageXFile = await widget.controller.takePicture();
-                Regularizer(imagePath: imageXFile.path)
-                  ..crop(
-                    width: Default.imageWidth * target.scaleFactor,
-                    height: Default.imageHeight * target.scaleFactor 
-                  )
-                  ..resize()
-                  ..save();
-              } catch (e) {
-                debugPrint(e.toString());
-              } finally {
-                setState((){
-                  _isLoading = false;
-                });
-                widget.controller.resumePreview();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => InfoPage(imagePath: imageXFile.path))
-                );
-              }
-            },
+            backgroundColor: Colors.deepOrange,
+            foregroundColor: Colors.white,
+            onPressed: () => takePicture(
+                context,
+                width: Default.imageWidth * target.scaleFactor, 
+                height: Default.imageHeight * target.scaleFactor
+            ),
             heroTag: 'camera',
-            child: const Icon(Icons.camera_alt_outlined)
+            child: const Icon(Icons.camera_alt)
           ),
           FloatingActionButton(
-            backgroundColor: Colors.transparent,
-            onPressed: () async {
-              widget.controller.resumePreview();
-              ImagePicker().pickImage(
-                source: ImageSource.gallery
-                ).then((imageXFile) {
-                  if (imageXFile != null){
-                    ImageCropper().cropImage(
-                      sourcePath: imageXFile.path,
-                      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
-                    ).then((CroppedFile? croppedFile) {
-                        if (croppedFile != null){
-                          Regularizer(imagePath: croppedFile.path)
-                            ..resize()
-                            ..save();
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => InfoPage(imagePath: croppedFile.path))
-                          );
-                        }
-                      }
-                    );
-                  }
-                }
-              );
-            },
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.blue,
+            onPressed: () => pickImage(context),
             heroTag: 'gellery',
             child: const Icon(Icons.photo),
           ),
         ]
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.miniCenterFloat,
-      backgroundColor: Colors.transparent,
     );
   }
 }

@@ -2,12 +2,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'package:gallery_saver/gallery_saver.dart';
+import 'package:photo_view/photo_view.dart';
 
-// ignore: must_be_immutable
 class InfoPage extends StatefulWidget {
-  late String imagePath;
+  final String imagePath;
 
-  InfoPage({super.key, required this.imagePath});
+  const InfoPage({super.key, required this.imagePath});
 
   @override
   State<InfoPage> createState() => _InfoPageState();
@@ -20,6 +20,28 @@ class _InfoPageState extends State<InfoPage> {
     'Escala: 0.00',
     'Erro estimado: 0.00'
   ];
+
+  void saveImage(BuildContext context){
+    GallerySaver.saveImage(
+      widget.imagePath, 
+      albumName: 'PAC'
+    ).then(
+      (bool? saved) {
+        if (saved ?? false){
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Imagem salva!'))
+          );
+        }
+      },
+      onError: (error) => showDialog(
+        context: context, 
+        builder: (context) => AlertDialog(
+          title: const Text('Erro ao salvar imagem!'),
+          content: Text(error.toString())
+        )
+      )
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,36 +57,35 @@ class _InfoPageState extends State<InfoPage> {
       ),
       body: Column(
         children: <Widget>[
-          Image.file(File(widget.imagePath),
-            width: size.width,
+          SizedBox(
+            width: size.width, 
             height: size.width,
-            fit: BoxFit.fill
+            child: PhotoView(
+              imageProvider: FileImage(File(widget.imagePath)),
+              minScale: PhotoViewComputedScale.covered,
+              customSize: Size(size.width, size.width)
+            )
           ),
           Expanded(
-            //height: 300,
-            child: ListView.builder(
+            child: Container(
+              decoration: const BoxDecoration(color: Colors.white),
+              child: ListView.builder(
                 itemBuilder: (context, index) => Card(
-                  child: ListTile(title: Text(_infoMessages[index]))
+                  child: ListTile(title: Text(_infoMessages[index])),
                 ), 
                 itemCount: _infoMessages.length
+              )
             )
           )
         ]
       ),
       floatingActionButton: SpeedDial(
         icon: Icons.save,
+        backgroundColor: Colors.deepOrange,
         children: <SpeedDialChild>[
           SpeedDialChild(
             label: 'Salvar imagem',
-            onTap: () => GallerySaver.saveImage(
-                widget.imagePath, 
-                albumName: 'PAC'
-              ).then(
-              (path) {
-                const snackBar = SnackBar(content: Text('Imagem salva!'));
-                ScaffoldMessenger.of(context).showSnackBar(snackBar);
-              }
-            ),
+            onTap: () => saveImage(context),
             child: const Icon(Icons.add_photo_alternate_outlined)
           ),
           SpeedDialChild(
