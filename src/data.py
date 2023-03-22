@@ -112,7 +112,7 @@ def load_by_area(area, **kwargs):
 
     Returns
     -------
-    Tuple
+    tuple
         (jpg_files, png_files)
     '''
     jpg_files = list(Paths.dataset.glob(f'**/{area}.jpg'))
@@ -154,7 +154,7 @@ def load_collection(pattern, grayscale=True, as_tensor=True, norm=True):
 
     return collection
 
-def load_all(pattern='**/*', **kwargs):
+def load_all(pattern='**/*', area=False, **kwargs):
     '''
     Carrega todas as amostras do conjunto de treinamento encontradas através do `pattern` fornecido.
 
@@ -162,14 +162,26 @@ def load_all(pattern='**/*', **kwargs):
     ----------
     patter : str, default='**/*'
         Caminho das amostras relativo a `Paths.dataset`.
+    area : bool, default=False
+        Se `True` as áreas são retornadas.
     **kwargs
         Extra arguments to `load_collection`: refer to each metric documentation for a
         list of all possible arguments.
+    
+    Returns
+    -------
+    list
+        (jpg_files, png_files), ou (jpg_files, png_files, areas) se `area = True`.
     '''
     jpg_files = list(Paths.dataset.glob(f'{pattern}.jpg'))
     png_files = map(lambda filename: filename.with_suffix('.png'), jpg_files)
-    return (load_collection(jpg_files, **kwargs),
-            load_collection(png_files, **kwargs))
+    output = [
+        load_collection(jpg_files, **kwargs),
+        load_collection(png_files, **kwargs)
+    ]
+    if area: 
+        output.append(list(map(lambda filename: float(filename.stem.split('_')[0]), jpg_files)))
+    return output
 
 def load_dataset(augmentation, **kwargs):
     '''
@@ -185,6 +197,7 @@ def load_dataset(augmentation, **kwargs):
     
     Returns
     -------
+    tuple
         (x_train, y_train), (x_test, y_test): Conjunto de treinamento.
     '''
     train_jpg_files = list(Paths.train.glob('*.jpg'))

@@ -25,7 +25,7 @@ def find_scale(img, sigma=2):
         pos = freqs > 0
         dI_gauss = gaussian_filter(dI, sigma)
         D = np.apply_along_axis(lambda y: freqs[pos][np.argmax(PSD(y)[pos])], 1, dI_gauss)
-        fs.append(mode(D).mode[0])
+        fs.append(mode(D, keepdims=True).mode[0])
         delta.append(0.5/dI.shape[1])
     
     (fx, fy), (dx, dy) = fs, delta
