@@ -208,10 +208,10 @@ def load_dataset(augmentation, **kwargs):
     y_test = load_collection((filepath.with_suffix('.png') for filepath in test_jpg_files), **kwargs)
 
     if augmentation: # shape = [4*N, H, W, D]
-        x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
-        y_train = flipping_augmentation(y_train, axis=(1, 2), concat_axis=0)
-        x_test = flipping_augmentation(x_test, axis=(1, 2), concat_axis=0)
-        y_test = flipping_augmentation(y_test, axis=(1, 2), concat_axis=0)
+        x_train = flipping_augmentation(x_train)
+        y_train = flipping_augmentation(y_train)
+        x_test = flipping_augmentation(x_test)
+        y_test = flipping_augmentation(y_test)
 
     return (x_train, y_train), (x_test, y_test)
 
