@@ -1,13 +1,51 @@
 import 'dart:io';
+import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'package:gallery_saver/gallery_saver.dart';
 import 'package:photo_view/photo_view.dart';
+import 'package:http/http.dart' as http;
+import 'package:pac_app/config.dart';
+
+const url = 'https://7f1b-2804-1b2-ab40-90ef-c01d-5fa-80d2-9501.sa.ngrok.io';
+
+class ImageInfo{
+  final String path;
+  var _sigma = 0.0;
+  var _size = Size.zero;
+
+  ImageInfo({required this.path});
+
+  double get sigma => _sigma;
+  Size get size => _size;
+
+  void updateInfo(Map<String, dynamic> info){
+    _sigma = double.parse(info['scale']);
+    _size = getImageSize(path) * math.sqrt(_sigma);
+  }
+
+  Future<void> request() async {
+    final file = await http.MultipartFile.fromPath('image', path);
+    final request = http.MultipartRequest('POST', Uri.parse(url))
+      ..files.add(file);
+    await request.send().then( // Fazer upload da image
+      (response) => http.Response.fromStream(response).then( // obter resposta
+        (response) => updateInfo( // atualizar informações sobre a imagem
+          json.decode(response.body.toString()) // converter resposta do servidor para um objeto Map
+        )
+      )
+    );
+    //request.finalize();
+  }
+}
 
 class InfoPage extends StatefulWidget {
-  final String imagePath;
+  late final ImageInfo imageInfo;
 
-  const InfoPage({super.key, required this.imagePath});
+  InfoPage({super.key, required imagePath}){
+    imageInfo = ImageInfo(path: imagePath);
+  }
 
   @override
   State<InfoPage> createState() => _InfoPageState();
@@ -15,15 +53,15 @@ class InfoPage extends StatefulWidget {
 
 class _InfoPageState extends State<InfoPage> {
 
-  final _infoMessages = [
-    'Área: 0.00',
-    'Escala: 0.00',
-    'Erro estimado: 0.00'
+  var _infoMessages = [
+    'Área:',
+    'Dimensões:',
+    'Erro estimado:'
   ];
 
   void saveImage(BuildContext context){
     GallerySaver.saveImage(
-      widget.imagePath, 
+      widget.imageInfo.path, 
       albumName: 'PAC'
     ).then(
       (bool? saved) {
@@ -39,6 +77,18 @@ class _InfoPageState extends State<InfoPage> {
           title: const Text('Erro ao salvar imagem!'),
           content: Text(error.toString())
         )
+      )
+    );
+  }
+
+  @override
+  void initState(){
+    super.initState();
+    widget.imageInfo.request().whenComplete(
+      () => setState(
+        (){
+          _infoMessages[1] = 'Dimensões: ${widget.imageInfo.size.width.round()}mm \u2A09 ${widget.imageInfo.size.width.round()}mm';
+        }
       )
     );
   }
@@ -61,7 +111,7 @@ class _InfoPageState extends State<InfoPage> {
             width: size.width, 
             height: size.width,
             child: PhotoView(
-              imageProvider: FileImage(File(widget.imagePath)),
+              imageProvider: FileImage(File(widget.imageInfo.path)),
               minScale: PhotoViewComputedScale.covered,
               customSize: Size(size.width, size.width)
             )
