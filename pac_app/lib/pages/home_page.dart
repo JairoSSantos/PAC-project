@@ -136,7 +136,7 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pellet Area Calculator')),
-      backgroundColor: Colors.grey[400],
+      backgroundColor: Colors.white,
       body: Center(
         child: _isLoading ? 
         const CircularProgressIndicator() :

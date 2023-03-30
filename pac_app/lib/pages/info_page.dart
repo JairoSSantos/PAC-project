@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
@@ -8,21 +9,33 @@ import 'package:photo_view/photo_view.dart';
 import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
 
-const url = 'https://7f1b-2804-1b2-ab40-90ef-c01d-5fa-80d2-9501.sa.ngrok.io';
+const url = 'https://dd29-2804-1b2-ab40-f65f-38fe-2377-ea1c-70d8.sa.ngrok.io';
 
 class ImageInfo{
   final String path;
   var _sigma = 0.0;
   var _size = Size.zero;
+  var _area = 0.0;
+  late ImageProvider _segmentation;
 
-  ImageInfo({required this.path});
+  ImageInfo({required this.path}){
+    _segmentation = FileImage(File(path));
+  }
 
   double get sigma => _sigma;
   Size get size => _size;
+  double get area => _area;
+  ImageProvider get segmentation => _segmentation;
 
   void updateInfo(Map<String, dynamic> info){
     _sigma = double.parse(info['scale']);
     _size = getImageSize(path) * math.sqrt(_sigma);
+    _segmentation = MemoryImage(convertBase64Image(info['segmentation']));
+    _area = double.parse(info['area']);
+  }
+
+  Uint8List convertBase64Image(String base64String) {
+    return const Base64Decoder().convert(base64String.split(',').last);
   }
 
   Future<void> request() async {
@@ -53,11 +66,10 @@ class InfoPage extends StatefulWidget {
 
 class _InfoPageState extends State<InfoPage> {
 
-  var _infoMessages = [
-    'Área:',
-    'Dimensões:',
-    'Erro estimado:'
-  ];
+  var _infoMessages = {
+    'Área': '',
+    'Dimensões da imagem': '',
+  };
 
   void saveImage(BuildContext context){
     GallerySaver.saveImage(
@@ -87,7 +99,8 @@ class _InfoPageState extends State<InfoPage> {
     widget.imageInfo.request().whenComplete(
       () => setState(
         (){
-          _infoMessages[1] = 'Dimensões: ${widget.imageInfo.size.width.round()}mm \u2A09 ${widget.imageInfo.size.width.round()}mm';
+          _infoMessages['Área'] = '${widget.imageInfo.area.toStringAsPrecision(4)} mm\u00B2';
+          _infoMessages['Dimensões da imagem'] = '${widget.imageInfo.size.width.round()} mm \u2A09 ${widget.imageInfo.size.width.round()} mm';
         }
       )
     );
@@ -104,6 +117,9 @@ class _InfoPageState extends State<InfoPage> {
           icon: const Icon(Icons.keyboard_backspace),
           onPressed: () => Navigator.of(context).popUntil(ModalRoute.withName('/')),
         ),
+        actions: [
+          IconButton(onPressed: (){}, icon: const Icon(Icons.construction))
+        ]
       ),
       body: Column(
         children: <Widget>[
@@ -111,7 +127,7 @@ class _InfoPageState extends State<InfoPage> {
             width: size.width, 
             height: size.width,
             child: PhotoView(
-              imageProvider: FileImage(File(widget.imageInfo.path)),
+              imageProvider: widget.imageInfo.segmentation,
               minScale: PhotoViewComputedScale.covered,
               customSize: Size(size.width, size.width)
             )
@@ -121,7 +137,22 @@ class _InfoPageState extends State<InfoPage> {
               decoration: const BoxDecoration(color: Colors.white),
               child: ListView.builder(
                 itemBuilder: (context, index) => Card(
-                  child: ListTile(title: Text(_infoMessages[index])),
+                  child: ListTile(title: RichText(
+                    text: TextSpan(
+                      style: DefaultTextStyle.of(context).style,
+                      children: [
+                        TextSpan(text: '${_infoMessages.keys.elementAt(index)}: '),
+                        TextSpan(
+                          text: _infoMessages.values.elementAt(index), 
+                          style: const TextStyle(
+                            fontStyle: FontStyle.italic, 
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18
+                          )
+                        ),
+                      ]
+                    )
+                  )),
                 ), 
                 itemCount: _infoMessages.length
               )
