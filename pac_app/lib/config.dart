@@ -7,6 +7,7 @@ class Default{
   static const double imageHeight = 256;
   static const double imageWidth = 256;
   static const int _resolutionIndex = 2;
+  static const String unit = 'mm';
 
   // Informações extraídas de https://pub.dev/documentation/camera_platform_interface/latest/camera_platform_interface/ResolutionPreset.html
   static final _resolutionSize = <ResolutionPreset, Size>{

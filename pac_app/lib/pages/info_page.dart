@@ -9,56 +9,12 @@ import 'package:photo_view/photo_view.dart';
 import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
 
-const url = 'https://dd29-2804-1b2-ab40-f65f-38fe-2377-ea1c-70d8.sa.ngrok.io';
-
-class ImageInfo{
-  final String path;
-  var _sigma = 0.0;
-  var _size = Size.zero;
-  var _area = 0.0;
-  late ImageProvider _segmentation;
-
-  ImageInfo({required this.path}){
-    _segmentation = FileImage(File(path));
-  }
-
-  double get sigma => _sigma;
-  Size get size => _size;
-  double get area => _area;
-  ImageProvider get segmentation => _segmentation;
-
-  void updateInfo(Map<String, dynamic> info){
-    _sigma = double.parse(info['scale']);
-    _size = getImageSize(path) * math.sqrt(_sigma);
-    _segmentation = MemoryImage(convertBase64Image(info['segmentation']));
-    _area = double.parse(info['area']);
-  }
-
-  Uint8List convertBase64Image(String base64String) {
-    return const Base64Decoder().convert(base64String.split(',').last);
-  }
-
-  Future<void> request() async {
-    final file = await http.MultipartFile.fromPath('image', path);
-    final request = http.MultipartRequest('POST', Uri.parse(url))
-      ..files.add(file);
-    await request.send().then( // Fazer upload da image
-      (response) => http.Response.fromStream(response).then( // obter resposta
-        (response) => updateInfo( // atualizar informações sobre a imagem
-          json.decode(response.body.toString()) // converter resposta do servidor para um objeto Map
-        )
-      )
-    );
-    //request.finalize();
-  }
-}
+const url = 'https://b9d6-2804-1b2-ab41-b2a3-a559-2742-574c-3db6.ngrok-free.app';
 
 class InfoPage extends StatefulWidget {
-  late final ImageInfo imageInfo;
+  final String imagePath;
 
-  InfoPage({super.key, required imagePath}){
-    imageInfo = ImageInfo(path: imagePath);
-  }
+  const InfoPage({super.key, required this.imagePath});
 
   @override
   State<InfoPage> createState() => _InfoPageState();
@@ -66,14 +22,62 @@ class InfoPage extends StatefulWidget {
 
 class _InfoPageState extends State<InfoPage> {
 
-  var _infoMessages = {
-    'Área': '',
-    'Dimensões da imagem': '',
-  };
+  late Map _infoMessages;
+  late ImageProvider _segmentation;
+  late String _imageKey;
+
+  Future<void> getScale() async {
+    final response = await http.get(Uri.parse('$url/scale/$_imageKey'));
+    final data = json.decode(response.body.toString());
+    final realSize = getImageSize(widget.imagePath) * math.sqrt(data['scale']);
+    setState(() {
+      _infoMessages['Dimensões da imagem'] = '${realSize.width.round()} mm \u2A09 ${realSize.width.round()} mm';
+    });
+  }
+
+  Future<void> getArea() async {
+    final response = await http.get(Uri.parse('$url/area/$_imageKey'));
+    final data = json.decode(response.body.toString());
+    setState(() {
+      _infoMessages['Área'] = '${data['area'].toStringAsPrecision(4)} mm\u00B2';
+    });
+  }
+
+  Future<void> getSegmentation() async {
+    final response = await http.get(Uri.parse('$url/segmentation/$_imageKey'));
+    final data = json.decode(response.body.toString());
+    final imageData = const Base64Decoder().convert(data['segmentation'].split(',').last);
+    setState(() {
+      _segmentation = MemoryImage(imageData);
+    });
+  }
+
+  void finishServer() => http.get(Uri.parse('$url/finish/$_imageKey'));
+
+  void getResults() async {
+    await getScale();
+    await getArea();
+    await getSegmentation();
+    finishServer();
+  }
+
+  Future<void> sendImage() async {
+    final file = await http.MultipartFile.fromPath('image', widget.imagePath);
+    final request = http.MultipartRequest('POST', Uri.parse(url));
+    request.files.add(file);
+    await request.send().then( // Fazer upload da imagem
+      (stream) => http.Response.fromStream(stream).then( // obter resposta
+        (response){
+          _imageKey = json.decode(response.body.toString())['key'];
+        }
+      )
+    );
+    getResults();
+  }
 
   void saveImage(BuildContext context){
     GallerySaver.saveImage(
-      widget.imageInfo.path, 
+      widget.imagePath, 
       albumName: 'PAC'
     ).then(
       (bool? saved) {
@@ -96,14 +100,9 @@ class _InfoPageState extends State<InfoPage> {
   @override
   void initState(){
     super.initState();
-    widget.imageInfo.request().whenComplete(
-      () => setState(
-        (){
-          _infoMessages['Área'] = '${widget.imageInfo.area.toStringAsPrecision(4)} mm\u00B2';
-          _infoMessages['Dimensões da imagem'] = '${widget.imageInfo.size.width.round()} mm \u2A09 ${widget.imageInfo.size.width.round()} mm';
-        }
-      )
-    );
+    _infoMessages = <String, String>{};
+    _segmentation = FileImage(File(widget.imagePath));
+    sendImage();
   }
 
   @override
@@ -127,7 +126,7 @@ class _InfoPageState extends State<InfoPage> {
             width: size.width, 
             height: size.width,
             child: PhotoView(
-              imageProvider: widget.imageInfo.segmentation,
+              imageProvider: _segmentation,
               minScale: PhotoViewComputedScale.covered,
               customSize: Size(size.width, size.width)
             )
@@ -154,7 +153,7 @@ class _InfoPageState extends State<InfoPage> {
                     )
                   )),
                 ), 
-                itemCount: _infoMessages.length
+                itemCount: _infoMessages.length,
               )
             )
           )
