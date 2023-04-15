@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 class Default{
   static const double imageHeight = 256;
   static const double imageWidth = 256;
+  static const Size imageSize = Size(imageWidth, imageHeight);
   static const int _resolutionIndex = 2;
   static const String unit = 'mm';
 

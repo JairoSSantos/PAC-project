@@ -67,7 +67,7 @@ class _HomePageState extends State<HomePage> {
         widget.controller.pausePreview();
         Regularizer(imagePath: imageXFile.path)
           ..crop(width: width, height: height)
-          ..resize()
+          //..resize()
           ..save();
         Navigator.push(
           context,
@@ -102,9 +102,8 @@ class _HomePageState extends State<HomePage> {
           aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
         ).then((CroppedFile? croppedFile) {
           if (croppedFile != null){
-            Regularizer(imagePath: croppedFile.path)
-              ..resize()
-              ..save();
+            Regularizer(imagePath: croppedFile.path).save();
+              //..resize()
             Navigator.push(
               context,
               MaterialPageRoute(
