@@ -2,7 +2,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:pac_app/config.dart';
 import 'package:pac_app/pages/info_page.dart';
 import 'package:image_cropper/image_cropper.dart';
 
@@ -60,25 +59,28 @@ class _HomePageState extends State<HomePage> {
       widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
   });
 
-  void takePicture(BuildContext context, {required double width, required double height}) {
+  void takePicture(BuildContext context) {
     widget.controller.takePicture().then(
       (XFile imageXFile) {
         setLoading(value: true);
         widget.controller.pausePreview();
-        Regularizer(imagePath: imageXFile.path)
-          ..crop(width: width, height: height)
-          //..resize()
-          ..save();
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => InfoPage(
-              imagePath: imageXFile.path
-            )
-          )
-        ).whenComplete(() {
-          widget.controller.resumePreview();
-          setLoading(value: false);
+        ImageCropper().cropImage(
+          sourcePath: imageXFile.path,
+          aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
+        ).then((CroppedFile? croppedFile) {
+          if (croppedFile != null){
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => InfoPage(
+                  imagePath: croppedFile.path
+                )
+              )
+            ).whenComplete(() {
+              widget.controller.resumePreview();
+              setLoading(value: false);
+            });
+          }
         });
       },
       onError: (error) => showDialog(
@@ -102,8 +104,6 @@ class _HomePageState extends State<HomePage> {
           aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
         ).then((CroppedFile? croppedFile) {
           if (croppedFile != null){
-            Regularizer(imagePath: croppedFile.path).save();
-              //..resize()
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -122,16 +122,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-
-    final screenSize = MediaQuery.of(context).size;
     widget.controller.setFocusPoint(const Offset(0.5, 0.5));
     widget.controller.setFlashMode(FlashMode.values[_flashModeIndex]);
-
-    final targetScaller = screenSize.width/(Default.getResolutionSize()?.width ?? 1);
-    final target = Target(
-      width: Default.imageWidth*targetScaller,
-      height: Default.imageHeight*targetScaller
-    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pellet Area Calculator')),
@@ -140,10 +132,7 @@ class _HomePageState extends State<HomePage> {
         child: _isLoading ? 
         const CircularProgressIndicator() :
         GestureDetector(
-          child: CameraPreview(
-            widget.controller,
-            child: target
-          ),
+          child: CameraPreview(widget.controller,),
           onScaleStart: (details) {
             _baseScaleZoom = _scaleZoom;
           },
@@ -166,11 +155,7 @@ class _HomePageState extends State<HomePage> {
           FloatingActionButton(
             backgroundColor: Colors.deepOrange,
             foregroundColor: Colors.white,
-            onPressed: () => takePicture(
-                context,
-                width: Default.imageWidth * target.scaleFactor, 
-                height: Default.imageHeight * target.scaleFactor
-            ),
+            onPressed: () => takePicture(context),
             heroTag: 'camera',
             child: const Icon(Icons.camera_alt)
           ),
