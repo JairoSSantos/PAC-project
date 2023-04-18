@@ -76,11 +76,11 @@ class _HomePageState extends State<HomePage> {
                   imagePath: croppedFile.path
                 )
               )
-            ).whenComplete(() {
-              widget.controller.resumePreview();
-              setLoading(value: false);
-            });
+            );
           }
+        }).whenComplete((){
+          widget.controller.dispose();
+          setLoading(value: false);
         });
       },
       onError: (error) => showDialog(
@@ -116,7 +116,7 @@ class _HomePageState extends State<HomePage> {
         });
       }
     }).whenComplete(
-      () => widget.controller.resumePreview()
+      () => widget.controller.dispose()
     );
   }
 
