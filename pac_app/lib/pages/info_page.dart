@@ -8,7 +8,16 @@ import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
 import 'package:path_provider/path_provider.dart';
 
-const url = 'https://a72b-2804-1b2-ab42-379f-d82b-2e4b-c160-bd97.ngrok-free.app';
+const url = 'https://d72a-2804-1b2-ab42-379f-a559-2742-574c-3db6.ngrok-free.app';
+
+Future<Map> sendImage(String path, {String? route, Map<String, String>? fields}) async {
+  final file = await http.MultipartFile.fromPath('image', path);
+  final request = http.MultipartRequest('POST', Uri.parse('$url/${(route ?? '')}'));
+  request.files.add(file);
+  request.fields.addAll(fields ?? {});
+  final response = await http.Response.fromStream(await request.send());
+  return json.decode(response.body.toString());
+}
 
 class InfoPage extends StatefulWidget {
   final String imagePath;
@@ -21,109 +30,122 @@ class InfoPage extends StatefulWidget {
 
 class _InfoPageState extends State<InfoPage> {
 
-  late Map _infoMessages;
-  late Map _additionalInfo;
-  late MemoryImage _segmentation;
-  late ImageProvider _image;
-  late bool _segRecived;
-  late bool _viewSeg;
-  late List _postProcess;
+  late Map _infoMessages; // resultados do modelo
+  late Map _additionalInfo; // informações adicionadas pelo usuário
+  late Map _savingModes;
+  late List _postProcess; // processamentos adicionais
+  late MemoryImage _segmentation; // segmentação
+  late ImageProvider _image; // amostra
+  late bool _segRecived; // true se a segmentação estiver disponível
+  late bool _viewSeg; // true para solicitar que a amostra seja mostrada
+  late bool _isLoading; // true para indicar algum processo em andamento
 
-  Future<void> sendImage() async {
-    final file = await http.MultipartFile.fromPath('image', widget.imagePath);
-    final request = http.MultipartRequest('POST', Uri.parse(url));
-    request.files.add(file);
-    request.fields.addAll({
-      'post_process': json.encode({for (final PyFunction pyfunc in _postProcess) pyfunc.name: pyfunc.asMap()})
+  void setLoading(value) => setState((){_isLoading = value;});
+
+  Future<void> getResults() async {
+    setLoading(true);
+    final response = await sendImage(widget.imagePath, 
+      fields:{
+        'post_process': json.encode({
+          for (final PyFunction pyfunc in _postProcess) 
+          pyfunc.name: pyfunc.asMap()
+        })
+      }
+    );
+    final realSize = Default.imageSize * math.sqrt(response['scale']);
+    final imageData = const Base64Decoder().convert(response['segmentation'].split(',').last);
+    setState((){
+      _infoMessages['Área'] = '${response['area'].toStringAsPrecision(4)} mm\u00B2';
+      _infoMessages['Dimensões'] = '${realSize.width.round()} mm \u00D7 ${realSize.width.round()} mm';
+      _segmentation = MemoryImage(imageData);
+      _segRecived = true;
+      _viewSeg = true;
     });
-    await request.send().then( // Fazer upload da imagem
-      (stream) => http.Response.fromStream(stream).then( // obter resposta
-        (response) {
-          final data = json.decode(response.body.toString());
-          final realSize = Default.imageSize * math.sqrt(data['scale']);
-          final imageData = const Base64Decoder().convert(data['segmentation'].split(',').last);
-          setState((){
-            _infoMessages['Área'] = '${data['area'].toStringAsPrecision(4)} mm\u00B2';
-            _infoMessages['Dimensões'] = '${realSize.width.round()} mm \u00D7 ${realSize.width.round()} mm';
-            _segmentation = MemoryImage(imageData);
-            _segRecived = true;
-            _viewSeg = true;
-          });
-        }
-      )
-    );
+    setLoading(false);
   }
 
-  void saveImage(BuildContext context){
-    GallerySaver.saveImage(
-      widget.imagePath, 
+  Future<String> saveImage({String? path}) async {
+    setLoading(true);
+    final success = await GallerySaver.saveImage(
+      path ?? widget.imagePath, 
       albumName: 'PAC'
-    ).then(
-      (bool? saved) {
-        if (saved ?? false){
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Imagem salva!'))
-          );
-        }
-      },
-      onError: (error) => showDialog(
-        context: context, 
-        builder: (context) => AlertDialog(
-          title: const Text('Erro ao salvar imagem!'),
-          content: Text(error.toString())
-        )
-      )
     );
+    setLoading(false);
+    return (success ?? false) ? 'Imagem salva!' : 'Erro ao salvar imagem!';
   }
 
-  Future<void> saveResult(BuildContext context) async {
-    final temp = await getTemporaryDirectory();
-    final path = '${temp.path}/sample.jpeg';
-    final filepath = File(path);
-    await filepath.writeAsBytes(_segmentation.bytes);
-
-    final file = await http.MultipartFile.fromPath('image', path);
-    final request = http.MultipartRequest('POST', Uri.parse('$url/result'));
-    request.files.add(file);
+  Future<String> saveResult() async {
+    setLoading(true);
+    final path = '${(await getTemporaryDirectory()).path}/sample.jpeg';
+    await File(path).writeAsBytes(_segmentation.bytes);
 
     var info = {};
     info.addAll(_infoMessages);
     info.addAll(_additionalInfo);
-    request.fields.addAll({
-      'informations': json.encode(info)
-    });
+    final response = await sendImage(path, 
+      route: 'result',
+      fields: {'informations': json.encode(info)}
+    );
+    final imageData = const Base64Decoder().convert(response['result'].split(',').last);
+    await File(path).writeAsBytes(imageData);
+    setLoading(false);
+    return saveImage(path: path);
+  }
 
-    await request.send().then( // Fazer upload da imagem
-      (stream) => http.Response.fromStream(stream).then( // obter resposta
-        (response) async {
-          final data = json.decode(response.body.toString());
-          final imageData = const Base64Decoder().convert(data['result'].split(',').last);
-          await File(path).writeAsBytes(imageData);
-          GallerySaver.saveImage(
-            path,
-            albumName: 'PAC'
-          ).then(
-            (bool? saved) {
-              if (saved ?? false){
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Imagem salva!'))
-                );
-              }
-            },
-            onError: (error) => showDialog(
-              context: context, 
-              builder: (context) => AlertDialog(
-                title: const Text('Erro ao salvar imagem!'),
-                content: Text(error.toString())
-              )
-            )
-          );
-        }
+  void showQuickMessage(BuildContext context, String message){
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message))
+    );
+  }
+
+  void showErrorMessage(BuildContext context, String title, String message){
+    showDialog(
+      context: context, 
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(message)
       )
     );
   }
 
-  Widget getInfoWidget(String title, String subtitle, {Widget? trailing}){
+  void addInfo(BuildContext context){
+    var title = '';
+    var subtitle = '';
+    showDialog(
+      context: context, 
+      builder: (_) => AlertDialog(
+        title: TextField(
+          decoration: const InputDecoration(
+            border: UnderlineInputBorder(),
+            labelText: 'Título',
+          ),
+          onChanged: (value){title = value;},
+        ),
+        content: TextField(
+          decoration: const InputDecoration(
+            border: UnderlineInputBorder(),
+            labelText: 'Valor',
+          ),
+          onChanged: (value){subtitle = value;},
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState((){_additionalInfo[title] = subtitle;});
+              Navigator.pop(context);
+            }, 
+            child: const Text('Adicionar')
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar')
+          )
+        ]
+      )
+    );
+  }
+
+  Widget infoWidget(String title, String subtitle, {Widget? trailing}){
     return Card(
       child: ListTile(
         title: Padding(
@@ -144,13 +166,20 @@ class _InfoPageState extends State<InfoPage> {
   @override
   void initState(){
     super.initState();
+
     _infoMessages = <String, String>{};
     _additionalInfo = <String, String>{};
+    _savingModes = {
+      'imagem': saveImage, 
+      'resultado': saveResult
+    };
     _image = FileImage(File(widget.imagePath));
     _segRecived = false;
     _viewSeg = false;
-    sendImage();
     _postProcess = <PyFunction>[];
+    _isLoading = false;
+
+    getResults();
   }
 
   @override
@@ -165,32 +194,27 @@ class _InfoPageState extends State<InfoPage> {
           onPressed: () => Navigator.of(context).popUntil(ModalRoute.withName('/')),
         ),
         actions: [
+          if (_isLoading) Transform.scale(
+            scaleX: 0.6,
+            scaleY: 0.4,
+            child: const CircularProgressIndicator(color: Colors.white)
+          ),
           PopupMenuButton<String>(
-            onSelected: (value){
-              switch (value){
-                case 'image': 
-                  saveImage(context); 
-                  break;
-                
-                case 'result': 
-                  saveResult(context);
-                  break;
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem<String>(
-                value: 'image',
-                child: Text('Salvar imagem')
+            onSelected: (value) => _savingModes[value]().then(
+              (message) => showQuickMessage(context, message),
+              onError: (error) => showErrorMessage(context, 'Erro ao salvar $value!', error.toString()),
+            ),
+            itemBuilder: (_) => [
+              for (final value in _savingModes.keys)
+              PopupMenuItem<String>(
+                value: value,
+                child: Text('Salvar $value')
               ),
-              const PopupMenuItem<String>(
-                value: 'result',
-                child: Text('Salvar resultado')
-              )
             ],
             icon: const Icon(Icons.save)
           ),
           PopupMenuButton<String>(
-            itemBuilder: (context) => [
+            itemBuilder: (_) => [
               for (final pyfunc in Morphology.values)
               PopupMenuItem<String>(
                 value: pyfunc.name, 
@@ -201,43 +225,10 @@ class _InfoPageState extends State<InfoPage> {
                 child: Text('Adicionar informação')
               )
             ],
-            icon: const Icon(Icons.construction),
+            icon: const Icon(Icons.more_vert),
             onSelected: (value){
               if (value == 'add_info'){
-                var title = '';
-                var subtitle = '';
-                showDialog(
-                  context: context, 
-                  builder: (_) => AlertDialog(
-                    title: TextField(
-                      decoration: const InputDecoration(
-                        border: UnderlineInputBorder(),
-                        labelText: 'Título',
-                      ),
-                      onChanged: (value){title = value;},
-                    ),
-                    content: TextField(
-                      decoration: const InputDecoration(
-                        border: UnderlineInputBorder(),
-                        labelText: 'Valor',
-                      ),
-                      onChanged: (value){subtitle = value;},
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () {
-                          setState((){_additionalInfo[title] = subtitle;});
-                          Navigator.pop(context);
-                        }, 
-                        child: const Text('Adicionar')
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancelar')
-                      )
-                    ]
-                  )
-                );
+                addInfo(context);
               } else {
                 setState(
                   () => _postProcess.add(Morphology.values.firstWhere(
@@ -266,9 +257,9 @@ class _InfoPageState extends State<InfoPage> {
               child: ListView(
                 children: [
                   for (final MapEntry element in _infoMessages.entries)
-                  getInfoWidget(element.key, element.value),
+                  infoWidget(element.key, element.value),
                   for (final MapEntry element in _additionalInfo.entries)
-                  getInfoWidget(element.key, element.value,
+                  infoWidget(element.key, element.value,
                     trailing: IconButton(
                       onPressed: () => setState(() => _additionalInfo.remove(element.key)), 
                       icon: const Icon(Icons.delete)
@@ -298,7 +289,9 @@ class _InfoPageState extends State<InfoPage> {
                                 max: param.max.toDouble(),
                                 value: param.value.toDouble(),
                                 onChanged: (v) => setState((){param.value = v.round();}),
-                                onChangeEnd: (v) => sendImage(),
+                                onChangeEnd: (_) => getResults().catchError(
+                                  (error) => showErrorMessage(context, 'Erro!', error.toString())
+                                ),
                               )
                             ]
                           )
@@ -307,7 +300,9 @@ class _InfoPageState extends State<InfoPage> {
                       trailing: IconButton(
                         onPressed: () => setState((){
                           _postProcess.remove(pyfunc);
-                          sendImage();
+                          getResults().catchError(
+                            (error) => showErrorMessage(context, 'Erro!', error.toString())
+                          );
                         }), 
                         icon: const Icon(Icons.delete)
                       )
@@ -319,25 +314,6 @@ class _InfoPageState extends State<InfoPage> {
           )
         ]
       ),
-      /*floatingActionButton: SpeedDial(
-        icon: Icons.save,
-        backgroundColor: Colors.deepOrange,
-        children: <SpeedDialChild>[
-          SpeedDialChild(
-            label: 'Salvar imagem',
-            onTap: () => saveImage(context),
-            child: const Icon(Icons.add_photo_alternate_outlined)
-          ),
-          SpeedDialChild(
-            label: 'Salvar resultado como imagem',
-            child: const Icon(Icons.photo_library_outlined)
-          ),
-          SpeedDialChild(
-            label: 'Salvar resultado como pdf',
-            child: const Icon(Icons.picture_as_pdf_outlined)
-          )
-        ]
-      ),*/
     );
   }
 }

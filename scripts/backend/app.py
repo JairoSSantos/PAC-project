@@ -15,6 +15,7 @@ from skimage.color import rgb2gray
 from skimage.transform import resize
 from skimage.filters import sobel
 from skimage import morphology
+from scipy import ndimage
 from src.measure import find_scale
 from tensorflow.keras.saving import load_model
 
@@ -30,7 +31,7 @@ def get_image(image_file):
     image_file.save(buffered)
     return Image.open(buffered)
 
-def image_to_baseg4(image):
+def image_to_base64(image):
     buffered = BytesIO()
     image.save(buffered, format='JPEG', quality=95)
     return base64.b64encode(buffered.getvalue()).decode()
@@ -39,7 +40,7 @@ def build_overlay(mask, image):
     contour = Image.fromarray(morphology.skeletonize(sobel(mask).astype(bool)))
     label = Image.fromarray(mask.astype(bool)).convert('RGB')
     overlay = Image.composite(Image.new('RGB', image.size, (255, 255, 255)), Image.blend(image, label, 0.3), contour)
-    return image_to_baseg4(overlay)
+    return image_to_base64(overlay)
 
 @APP.route('/', methods=['POST'])
 def upload():
@@ -49,17 +50,17 @@ def upload():
     gray_image = rgb2gray(resize(np.array(image), IMG_SIZE))
     scale = find_scale(gray_image)[0]
     pred = MODEL.predict(gray_image[np.newaxis, ..., np.newaxis])[0, ..., 0]
+    pred = pred > 0.5
 
     for func, config in post_process.items():
         pred = getattr(globals()[config['source']], func)(pred, **config['params'])
 
-    area = scale*pred.sum()
-    segmentation = build_overlay(resize(pred > 0.5, image.size), image)
+    segmentation = resize(pred, image.size)
 
     return jsonify({
         'scale': scale,
-        'area': area,
-        'segmentation': segmentation
+        'area': scale*pred.sum(),
+        'segmentation': build_overlay(segmentation, image)
     })
 
 @APP.route('/result', methods=['POST'])
@@ -89,7 +90,7 @@ def result_as_image():
         y += 2*pad
 
     return jsonify({
-        'result': image_to_baseg4(result)
+        'result': image_to_base64(result)
     })
 
 if __name__ == '__main__':

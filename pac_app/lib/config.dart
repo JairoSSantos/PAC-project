@@ -58,8 +58,9 @@ class PyFunction{
 }
 
 enum Morphology {
-  areaOpening('morphology', 'area_opening', 'Remover excessos', [PyParamConfig<int>('area_threshold', 64, 0, 1000, 'Tamanho')]),
-  areaClosing('morphology', 'area_closing', 'Remover buracos', [PyParamConfig<int>('area_threshold', 64, 0, 1000, 'Tamanho')]);
+  areaOpening('morphology', 'area_opening', 'Remover excessos', [PyParamConfig<int>('area_threshold', 64, 0, 2000, 'Tamanho')]),
+  areaClosing('morphology', 'area_closing', 'Remover buracos', [PyParamConfig<int>('area_threshold', 64, 0, 2000, 'Tamanho')]),
+  binaryOpening('ndimage', 'binary_opening', 'Abertura morfológica', [PyParamConfig<int>('iterations', 1, 1, 20, 'Iterações')]);
 
   const Morphology(this.source, this.name, this.label, this.paramsConfig);
   final String source;
