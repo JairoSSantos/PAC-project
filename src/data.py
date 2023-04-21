@@ -8,6 +8,24 @@ from warnings import warn
 from .config import Paths, Default
 from .measure import find_scale, find_slope
 
+def _with_suffix(pattern, suffix):
+    '''
+    Modifica a extensão dos arquivos em `pattern`.
+
+    Parameters
+    ----------
+    pattern : iterable
+        Arquivos que serão mapeados.
+    suffix : str
+        Extenção que será adicionada aos arquivos.
+    
+    Returns
+    -------
+    iterable
+        Arquivos `pattern` com a extensão `suffix`.
+    '''
+    return map(lambda filepath: filepath.with_suffix(suffix), pattern)
+
 def add_processed_data(replace=False):
     '''
     Adiciona as amomstras de `Paths.processed` ao conjunto de treinamento `Paths.dataset`.
@@ -24,7 +42,7 @@ def add_processed_data(replace=False):
     for jpg_path in Paths.processd.glob('*.jpg'):
         new_jpg_path = Paths.dataset/jpg_path.name
 
-        png_file = jpg_path.with_suffix('.png')
+        png_path = jpg_path.with_suffix('.png')
         new_png_path = Paths.dataset/png_path.name
 
         if not replace and new_jpg_path.exists():
@@ -93,9 +111,9 @@ def flipping_augmentation(collection):
     '''
     return tf.concat((
             collection,
-            tf.reverse(collection, axis=(1, 2)),
-            tf.reverse(collection, axis=1),
-            tf.reverse(collection, axis=2)
+            collection[::-1],
+            collection[:, ::-1],
+            collection[::-1, ::-1]
     ), axis=0)
 
 def load_by_area(area, **kwargs):
@@ -133,7 +151,7 @@ def load_collection(pattern, grayscale=True, as_tensor=True, norm=True):
     as_tensor : bool, default=True
         Se `True` as imagens serão retornadas em forma de `tf.Tensor`; se `False` retornará `np.ndarray`.
     norm: bool, default=True
-        Se `True` as imagens serão normalizadas para valores entre 0 e 1.
+        Se `True` as imagens serão normalizadas para valores entre 0 e 1, ao longo dos eixos 1 e 2 (`height` e `width`, respectivamente).
     
     Returns
     ------- 
@@ -203,9 +221,9 @@ def load_dataset(augmentation, **kwargs):
     train_jpg_files = list(Paths.train.glob('*.jpg'))
     test_jpg_files = list(Paths.test.glob('*.jpg'))
     x_train = load_collection(train_jpg_files, **kwargs)
-    y_train = load_collection((filepath.with_suffix('.png') for filepath in train_jpg_files), **kwargs)
+    y_train = load_collection(_with_suffix(train_jpg_files, '.png'), **kwargs)
     x_test = load_collection(test_jpg_files, **kwargs)
-    y_test = load_collection((filepath.with_suffix('.png') for filepath in test_jpg_files), **kwargs)
+    y_test = load_collection(_with_suffix(test_jpg_files, '.png'), **kwargs)
 
     if augmentation: # shape = [4*N, H, W, D]
         x_train = flipping_augmentation(x_train)

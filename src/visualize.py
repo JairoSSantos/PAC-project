@@ -40,7 +40,7 @@ def plot_training(unet, clear=False, ranking=False):
     pred = y_pred_test[j, ..., 0]
 
     logs = unet.get_logs()
-    best_epoch = logs.epoch[np.argmin(logs.val_loss)]
+    best_epoch = logs.epoch[np.argmin(logs.val_area_mape)]
     n_metrics = len(unet.model.metrics) - 1
 
     # ==================== Figure config ====================
@@ -88,6 +88,7 @@ def plot_training(unet, clear=False, ranking=False):
         ax = fig.add_subplot(metrics_grid[0, i])
         ax.plot(logs.epoch, logs[metric.name], label='training data')
         ax.plot(logs.epoch, logs[f'val_{metric.name}'], label=f'validation data')
+        if metric.name not in ['DSC', 'IoU']: ax.semilogy()
         ax.set_xlabel('epoch')
         ax.set_ylabel(metric.name)
         ax.grid(True)
@@ -100,7 +101,17 @@ def plot_training(unet, clear=False, ranking=False):
     plt.show()
 
     if ranking != False: 
-        display(HTML(logs.sort_values('val_loss', ascending=True).head(int(ranking)).to_html()))
+        sort_col = 'val_area_mape'
+        display(
+            HTML(
+                logs.sort_values(
+                    sort_col if sort_col in logs.columns else 'val_loss',
+                    ascending=True
+                ).head(
+                    int(ranking)
+                ).to_html()
+            )
+        )
 
 class TrainingBoard(Callback):
     def __init__(self, unet, period, ranking):
