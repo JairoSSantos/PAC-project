@@ -39,6 +39,7 @@ class _InfoPageState extends State<InfoPage> {
   late bool _segRecived; // true se a segmentação estiver disponível
   late bool _viewSeg; // true para solicitar que a amostra seja mostrada
   late bool _isLoading; // true para indicar algum processo em andamento
+  late String _unit;
 
   void setLoading(value) => setState((){_isLoading = value;});
 
@@ -55,8 +56,8 @@ class _InfoPageState extends State<InfoPage> {
     final realSize = Default.imageSize * math.sqrt(response['scale']);
     final imageData = const Base64Decoder().convert(response['segmentation'].split(',').last);
     setState((){
-      _infoMessages['Área'] = '${response['area'].toStringAsPrecision(4)} mm\u00B2';
-      _infoMessages['Dimensões'] = '${realSize.width.round()} mm \u00D7 ${realSize.width.round()} mm';
+      _infoMessages['Área'] = '${response['area'].toStringAsPrecision(4)} $_unit\u00B2';
+      _infoMessages['Dimensões'] = '${realSize.width.round()} $_unit \u00D7 ${realSize.width.round()} $_unit';
       _segmentation = MemoryImage(imageData);
       _segRecived = true;
       _viewSeg = true;
@@ -103,14 +104,20 @@ class _InfoPageState extends State<InfoPage> {
       context: context, 
       builder: (_) => AlertDialog(
         title: Text(title),
-        content: Text(message)
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context), 
+            child: const Text('Ok')
+          )
+        ]
       )
     );
   }
 
   void addInfo(BuildContext context){
     var title = '';
-    var subtitle = '';
+    var content = '';
     showDialog(
       context: context, 
       builder: (_) => AlertDialog(
@@ -124,23 +131,56 @@ class _InfoPageState extends State<InfoPage> {
         content: TextField(
           decoration: const InputDecoration(
             border: UnderlineInputBorder(),
-            labelText: 'Valor',
+            labelText: 'Conteúdo',
           ),
-          onChanged: (value){subtitle = value;},
+          onChanged: (value){content = value;},
+        ),
+        actions: [
+            TextButton(
+              onPressed: () {
+                setState((){_additionalInfo[title] = content;});
+                Navigator.pop(context);
+              }, 
+              child: const Text('Salvar')
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context), 
+              child: const Text('Cancelar')
+            )
+          ],
+      )
+    );
+  }
+
+  void setUnit(BuildContext context) {
+    var unit = _unit;
+    showDialog(
+      context: context, 
+      builder: (_) => AlertDialog(
+        title: const Text('Alterar unidade'),
+        content: TextField(
+          decoration: InputDecoration(
+            border: const UnderlineInputBorder(),
+            hintText: unit
+          ),
+          onChanged: (value) {unit = value;}
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              setState((){_additionalInfo[title] = subtitle;});
+            onPressed: () => setState((){
+              _unit = unit;
+              getResults().catchError(
+                (error) => showErrorMessage(context, 'Erro!', error.toString())
+              );
               Navigator.pop(context);
-            }, 
-            child: const Text('Adicionar')
+            }), 
+            child: const Text('Salvar')
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context), 
             child: const Text('Cancelar')
           )
-        ]
+        ],
       )
     );
   }
@@ -178,7 +218,7 @@ class _InfoPageState extends State<InfoPage> {
     _viewSeg = false;
     _postProcess = <PyFunction>[];
     _isLoading = false;
-
+    _unit = Default.unit;
     getResults();
   }
 
@@ -187,6 +227,7 @@ class _InfoPageState extends State<InfoPage> {
     final size = MediaQuery.of(context).size;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('Resultado'),
         leading: IconButton(
@@ -223,17 +264,24 @@ class _InfoPageState extends State<InfoPage> {
               const PopupMenuItem<String>(
                 value: 'add_info',
                 child: Text('Adicionar informação')
+              ),
+              const PopupMenuItem<String>(
+                value: 'set_unit',
+                child: Text('Alterar unidade')
               )
             ],
             icon: const Icon(Icons.more_vert),
-            onSelected: (value){
+            onSelected: (value) {
               if (value == 'add_info'){
                 addInfo(context);
+              } else if (value == 'set_unit') {
+                setUnit(context);
               } else {
-                setState(
-                  () => _postProcess.add(Morphology.values.firstWhere(
-                    (element) => element.name == value).pyFunc()
-                  )
+                setState(() => _postProcess.add(Morphology.values.firstWhere(
+                  (element) => element.name == value).pyFunc()
+                ));
+                getResults().catchError(
+                  (error) => showErrorMessage(context, 'Erro!', error.toString())
                 );
               }
             }
