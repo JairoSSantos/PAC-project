@@ -1,4 +1,4 @@
 # ignorar registros de treinamento das U-Nets
-models/unet*
+models/unet_*
 
-scripts/backend/.env
+.env

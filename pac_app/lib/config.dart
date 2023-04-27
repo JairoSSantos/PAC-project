@@ -1,26 +1,6 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
-
-class Default{
-  static const double imageHeight = 256;
-  static const double imageWidth = 256;
-  static const int _resolutionIndex = 2;
-
-  // Informações extraídas de https://pub.dev/documentation/camera_platform_interface/latest/camera_platform_interface/ResolutionPreset.html
-  static final _resolutionSize = <ResolutionPreset, Size>{
-    ResolutionPreset.low: Platform.isIOS ? const Size(288, 352) : const Size(240, 320),
-    ResolutionPreset.medium: Platform.isIOS ? const Size(480, 640) : const Size(480, 720),
-    ResolutionPreset.high: const Size(720, 1280),
-    ResolutionPreset.veryHigh: const Size(1080, 1920),
-    ResolutionPreset.ultraHigh: Platform.isAndroid || Platform.isIOS ? const Size(2160, 3840) : const Size(2160, 4096)
-  };
-
-  static ResolutionPreset getResolution() => ResolutionPreset.values[_resolutionIndex];
-
-  static Size? getResolutionSize() => _resolutionSize[getResolution()];
-}
 
 Size getImageSize(String imagePath){
   final imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
@@ -30,114 +10,68 @@ Size getImageSize(String imagePath){
   );
 }
 
-class Regularizer {
-  final String imagePath;
-  late img.Image imageBytes;
-  
-  Regularizer({required this.imagePath}){
-    imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
+class Default{
+  static const double imageHeight = 256;
+  static const double imageWidth = 256;
+  static const Size imageSize = Size(imageWidth, imageHeight);
+  static const String unit = 'mm';
+}
+
+class PyParamConfig<T>{
+  final String name;
+  final T defaultValue;
+  final T min;
+  final T max;
+  final String label;
+
+  const PyParamConfig(this.name, this.defaultValue, this.min, this.max, this.label);
+}
+
+class PyParam<T> extends PyParamConfig<T>{
+  late T value;
+
+  PyParam(super.name, super.defaultValue, super.min, super.max, super.label){
+    value = defaultValue;
   }
 
-  void crop({double? left, double? top, double? width, double? height}){
-    /*
-    Se [left] e [top] não forem passados, o corte será centralizado na imagem.
-    Se [width] e [height] não forem passados, o tamanho do corte será o padrão.
-    */
-    width = width ?? Default.imageWidth;
-    height = height ?? Default.imageHeight;
+  static PyParam fromConfig(PyParamConfig config){
+    return PyParam(config.name, config.defaultValue, config.min, config.max, config.label);
+  }
+} 
 
-    imageBytes = img.copyCrop(
-      imageBytes,
-      x: left?.toInt() ?? (imageBytes.width - width)~/2,
-      y: top?.toInt() ?? (imageBytes.height - height)~/2,
-      width: width.toInt(),
-      height: height.toInt(), 
-    );
+class PyFunction{
+  final String source;
+  final String name;
+  late List<PyParam> params;
+  final String label;
+
+  PyFunction({required this.source, required this.name, required List<PyParamConfig<dynamic>> paramsConfig, required this.label}){
+    params = paramsConfig.map((config) => PyParam.fromConfig(config)).toList();
   }
 
-  void resize({double? width, double? height}){
-    /*
-    Se [width] e [height] não forem passados, o tamanho do corte será o padrão.
-    */
-    imageBytes = img.copyResize(
-      imageBytes,
-      width: (width ?? Default.imageWidth).toInt(),
-      height: (height ?? Default.imageHeight).toInt(),
-    );
-  }
-
-  void save({String? savePath}) async {
-    await File(savePath ?? imagePath).writeAsBytes(img.encodeJpg(imageBytes));
+  Map asMap(){
+    return {
+      'source': source,
+      'params': {for (final PyParam param in params) param.name: param.value}
+    };
   }
 }
 
-// ignore: must_be_immutable
-class Target extends StatefulWidget {
-  final double width;
-  final double height;
-  var scaleFactor = 1.0;
+enum Morphology {
+  areaOpening('morphology', 'area_opening', 'Remover excessos', [PyParamConfig<int>('area_threshold', 64, 0, 2000, 'Tamanho')]),
+  areaClosing('morphology', 'area_closing', 'Remover buracos', [PyParamConfig<int>('area_threshold', 64, 0, 2000, 'Tamanho')]),
+  binaryOpening('ndimage', 'binary_opening', 'Abertura morfológica', [PyParamConfig<int>('iterations', 1, 1, 20, 'Iterações')]);
 
-  Target({super.key, required this.width, required this.height});
+  const Morphology(this.source, this.name, this.label, this.paramsConfig);
+  final String source;
+  final String name;
+  final String label;
+  final List<PyParamConfig> paramsConfig;
 
-  @override
-  State<Target> createState() => _TargetState();
-}
-
-class _TargetState extends State<Target> {
-
-  late double _baseScaleFactor;
-  late bool _zoomMode;
-
-  @override
-  void initState(){
-    widget.scaleFactor = _baseScaleFactor = 1;
-    _zoomMode = false;
-    super.initState();
-  }
-
-  void initZoom(_) => setState(() {
-    _baseScaleFactor = widget.scaleFactor;
-  });
-
-  void updateZoom(details) => setState(() {
-    if (_zoomMode) {
-      widget.scaleFactor = (_baseScaleFactor * details.scale).clamp(1, 5);
-    }
-  });
-
-  void resetZoomState() => setState(() {
-    _baseScaleFactor = widget.scaleFactor = 1;
-  });
-
-  void setZoomMode({bool? value}) => setState(() {
-    _zoomMode = value ?? !_zoomMode;
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onScaleStart: initZoom,
-      onScaleUpdate: updateZoom,
-      onTap: setZoomMode,
-      onDoubleTap: resetZoomState,
-      onScaleEnd: (_) => setZoomMode(value: false),
-      child: Center(
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.rectangle, 
-              border: Border.all(color: Colors.white, width: 1.5)
-            ),
-            child: Container(
-              width: widget.width * widget.scaleFactor,
-              height: widget.height * widget.scaleFactor,
-              decoration: BoxDecoration(
-                  shape: BoxShape.rectangle, 
-                  border: Border.all(color: _zoomMode? Colors.blue : Colors.deepOrange, width: 3)
-                ),
-              child: const Center(child: Icon(Icons.add, color: Colors.deepOrange))
-            )
-          )
-        ),
-    );
-  }
+  PyFunction pyFunc() => PyFunction(
+    source: source, 
+    name: name, 
+    paramsConfig: paramsConfig,
+    label: label
+  );
 }
