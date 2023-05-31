@@ -54,7 +54,7 @@ def add_processed_data(replace=False):
 def check_data_integrity(directory):
     '''
     Verifica integridade dos dados no diretório `directory` 
-    checando se para cada arquivo `.jpg` (imagem) existe um `.png` (máscara) correspondente.
+    conferindo se para cada arquivo `.jpg` (imagem) existe um `.png` (máscara) correspondente.
 
     Parameters
     ----------
