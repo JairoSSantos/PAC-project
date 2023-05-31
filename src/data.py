@@ -111,9 +111,9 @@ def flipping_augmentation(collection):
     '''
     return tf.concat((
             collection,
-            collection[::-1],
             collection[:, ::-1],
-            collection[::-1, ::-1]
+            collection[:, :, ::-1],
+            collection[:, ::-1, ::-1]
     ), axis=0)
 
 def load_by_area(area, **kwargs):
