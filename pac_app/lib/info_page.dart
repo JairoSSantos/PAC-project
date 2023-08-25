@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
 import 'package:path_provider/path_provider.dart';
 
-const url = 'https://d72a-2804-1b2-ab42-379f-a559-2742-574c-3db6.ngrok-free.app';
+const url = 'https://478c-2804-1b2-ab40-3dfa-1273-1fd2-b045-b881.ngrok-free.app';
 
 Future<Map> sendImage(String path, {String? route, Map<String, String>? fields}) async {
   final file = await http.MultipartFile.fromPath('image', path);
