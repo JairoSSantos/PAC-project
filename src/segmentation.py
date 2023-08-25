@@ -99,10 +99,11 @@ class UNet:
         x_test, y_test: Dados de validação.
         *Qualquer outro atributo ou método pretencente à classe tf.keras.Model.
     '''
-    def __init__(self, name:str, dataset:tuple):
+    def __init__(self, name, dataset=None):
         self.name = name
+        if dataset is None: dataset = [[None]*2]*2
         (self.x_train, self.y_train), (self.x_test, self.y_test) = dataset
-        self._dir = Paths.MODELS/self.name
+        self._dir = Paths.models/self.name
         self._logs_path = self._dir/'logs.csv'
     
     def __getattr__(self, name):
@@ -110,6 +111,10 @@ class UNet:
         Pegar atributo pertencente ao modelo (tf.keras.Model).
         '''
         return getattr(self.model, name)
+    
+    def _check_dataset(self):
+        if None in (self.x_train, self.y_train, self.x_test, self.y_test):
+            raise Exception('O dataset não está definido, utilize set_dataset para defini-lo.')
     
     def build(self, filters:tuple, activation:str='sigmoid'):
         '''
@@ -125,6 +130,8 @@ class UNet:
         Warnings:
             Se name atribuido à U-Net já estiver sendo usado para salvar outro modelo, a variável será alterada e um aviso será emitido informando a alteração.
         '''
+        self._check_dataset()
+
         if self._dir.exists():
             self._dir = add_dir_id(self._dir)
             self.name = str(self._dir.stem)
@@ -132,6 +139,14 @@ class UNet:
 
         self.model = build_unet(input_shape=self.x_train.shape[1:], filters=filters, name=self.name, activation=activation)
         return self
+
+    def evaluate(self, **kwargs):
+        return self.model.evaluate(self.x_test, self.y_test, **kwargs)
+    
+    def delete(self):
+        for filepath in self._dir.glob('*'):
+            filepath.unlink()
+        self._dir.rmdir()
     
     def fit(self, epochs:int, batch_size:int, plot:bool, period:int=10, ranking:bool=False):
         '''
@@ -142,6 +157,8 @@ class UNet:
             batch_size: Número de imagens por pacote.
             period (opcional): Período de atualização dos gráficos sobre o treinamento do modelo.
         '''
+        self._check_dataset()
+
         try: initial_epoch = pd.read_csv(self._logs_path).epoch.max()
         except FileNotFoundError: initial_epoch = 0
 
@@ -166,18 +183,31 @@ class UNet:
             callbacks= default_callbacks
         )
 
-    def load(self, epoch=None, **kwargs):
+    def load(self, **kwargs):
         '''
         Carregar U-Net.
         
         Return:
             U-Net.
         '''
-        self.model = load_model(self._dir/(f'weights.{epoch}.h5' if epoch != None else f'{self.name}.h5'), **kwargs)
+        self.model = load_model(self._dir/f'{self.name}.h5', **kwargs)
         return self
+    
+    def load_weights(self, epoch):
+        if type(epoch) is int: 
+            epoch = str(epoch)
+            while len(epoch) < 4: epoch = '0' + epoch
+        self.model.load_weights(self._dir/f'weights.{epoch}.h5')
+    
+    def get_dataset(self):
+        return ((self.x_train, self.y_train),
+                (self.x_test, self.y_test))
     
     def get_logs(self):
         return pd.read_csv(self._logs_path)
+    
+    def set_dataset(self, dataset):
+        self.dataset = dataset
         
     def save(self):
         '''

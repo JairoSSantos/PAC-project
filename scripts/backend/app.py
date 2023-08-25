@@ -13,13 +13,13 @@ from textwrap import wrap
 import numpy as np
 from skimage.color import rgb2gray
 from skimage.transform import resize
-from skimage.filters import sobel
-from skimage import morphology
+from skimage.filters import roberts
+#from skimage import morphology
 from scipy import ndimage
 from src.measure import find_scale
 from tensorflow.keras.saving import load_model
 
-MODEL = load_model('unet-0.45.h5', compile=False)
+MODEL = load_model('unet-0.41.h5', compile=False)
 IMG_SIZE = (256, 256)
 PAD_BY_WIDTH = 1/20 # proporção margem por largura da imagem
 TEXT_LIM = 40 # limite de caracteres por linha de texto
@@ -37,14 +37,15 @@ def image_to_base64(image):
     return base64.b64encode(buffered.getvalue()).decode()
 
 def build_overlay(mask, image):
-    contour = Image.fromarray(morphology.skeletonize(sobel(mask).astype(bool)))
-    label = Image.fromarray(mask.astype(bool)).convert('RGB')
-    overlay = Image.composite(Image.new('RGB', image.size, (255, 255, 255)), Image.blend(image, label, 0.3), contour)
+    contour = Image.fromarray(roberts(mask).astype(bool))
+    label = Image.fromarray(np.stack([255*np.zeros(mask.shape)]*2 + [255*mask], axis=-1).astype(np.uint8)) #.convert('RGB')
+    overlay = Image.composite(Image.new('RGB', image.size, (255, 255, 0)), Image.blend(image, label, 0.2), contour)
     return image_to_base64(overlay)
 
 @APP.route('/', methods=['POST'])
 def upload():
     image = get_image(request.files['image'])
+    print(image.width, image.height)
     post_process = json.loads(request.values.get('post_process'))
 
     gray_image = rgb2gray(resize(np.array(image), IMG_SIZE))

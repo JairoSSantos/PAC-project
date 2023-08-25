@@ -1,4 +1,8 @@
 # ignorar registros de treinamento das U-Nets
-models/unet_*
+models/unet-*
 
 .env
+
+.vscode
+
+__pycache__

@@ -4,35 +4,71 @@ import tensorflow as tf
 from skimage.io import imread, imsave
 from skimage.transform import resize
 from scipy.ndimage import center_of_mass
-from typing import Any, Callable
 from warnings import warn
 from .config import Paths, Default
+from .measure import find_scale, find_slope
+
+def _with_suffix(pattern, suffix):
+    '''
+    Modifica a extensão dos arquivos em `pattern`.
+
+    Parameters
+    ----------
+    pattern : iterable
+        Arquivos que serão mapeados.
+    suffix : str
+        Extenção que será adicionada aos arquivos.
+    
+    Returns
+    -------
+    iterable
+        Arquivos `pattern` com a extensão `suffix`.
+    '''
+    return map(lambda filepath: filepath.with_suffix(suffix), pattern)
 
 def add_processed_data(replace=False):
     '''
-    Adicionar as amomstras de `processed/` para `dataset/`.
+    Adiciona as amomstras de `Paths.processed` ao conjunto de treinamento `Paths.dataset`.
+
+    Parameters
+    ----------
+    replace : bool, default=False
+        Se verdadeiro, arquivos existentes poderão ser sobrescritos.
+    
+    Returns
+    -------
+    None
     '''
     for jpg_path in Paths.processd.glob('*.jpg'):
         new_jpg_path = Paths.dataset/jpg_path.name
 
-        png_file = jpg_path.with_suffix('.png')
+        png_path = jpg_path.with_suffix('.png')
         new_png_path = Paths.dataset/png_path.name
 
         if not replace and new_jpg_path.exists():
-            warn(f'Uma amostra nomeada {jpg_path.stem} já foi adicionada ao dataset!')
+            warn(f'Uma amostra nomeada "{jpg_path.stem}" já foi adicionada ao dataset!')
         else:
             jpg_path.rename(new_jpg_path)
             png_path.rename(new_png_path)
 
 def check_data_integrity(directory):
     '''
-    Verificar integridade dos dados em um subdiretório de `data/`
-    '''
-    path = getattr(Paths, directory)
-    jpg_files = list(path.glob('**/*.jpg'))
-    png_files = list(path.glob('**/*.png'))
+    Verifica integridade dos dados no diretório `directory` 
+    conferindo se para cada arquivo `.jpg` (imagem) existe um `.png` (máscara) correspondente.
+
+    Parameters
+    ----------
+    directory : pathlib.PurePath
+        Diretório que será verificado.
     
-    print(f'Verificando integridade dos dados em {path}')
+    Returns
+    -------
+    None
+    '''
+    jpg_files = list(directory.glob('**/*.jpg'))
+    png_files = list(directory.glob('**/*.png'))
+    
+    print(f'Verificando integridade dos dados em {directory}')
 
     png_missing = []
     for jpg_file in jpg_files:
@@ -58,33 +94,70 @@ def check_data_integrity(directory):
     if not issues:
         print('- Não foram encontradas incosistências neste diretório')
 
-def flipping_augmentation(collection, axis=(1, 2), concat_axis=0):
+def flipping_augmentation(collection):
     '''
-    Aumento os dados espelhando as imagens.
+    Aumento os dados via espelhamento das imagens. As imagens serão espelhadas nos eixos `height` e `width`.
 
-    Args:
-        collection: Coleção de imagens.
-        axis: Eixos que serão espelhados.
-        concat_axis (opcional): Eixo de concatenação.
+    Parameters
+    ----------
+    collection: tensor-like
+        Tensor contendo a coleção de imagens que serão espelhadas,
+        `collection.shape`: `[n_batch, height, width, chanels]` ou `[n_batch, height, width]`.
     
-    Return:
-        A coleção de imagens espelhadas nas direções definidas em `axis`.
+    Returns
+    -------
+    tf.Tensor
+        Coleção aumentada em 4 vezes, `shape = [4*n_batch, ...]`.
     '''
-    assert len(axis) == 2, '`axis` deve conter exatamente 2 valores.'
     return tf.concat((
             collection,
-            tf.reverse(collection, axis=axis),
-            tf.reverse(collection, axis=axis[:0]),
-            tf.reverse(collection, axis=axis[1:2])
-    ), axis=concat_axis)
+            collection[:, ::-1],
+            collection[:, :, ::-1],
+            collection[:, ::-1, ::-1]
+    ), axis=0)
 
 def load_by_area(area, **kwargs):
-    return (
-        load_collection(Paths.dataset.glob(f'**/{area}.jpg'), **kwargs), 
-        load_collection(Paths.dataset.glob(f'**/{area}.png'), **kwargs)
-    )
+    '''
+    Coleta as amostras do conjunto de treinamentos através da área.
+
+    Parameters
+    ----------
+    area : str
+        `string`, `float` ou `int` contendo o valor da área (no padrão internacional) a ser usado para procurar as amostras.
+    **kwargs
+        Extra arguments to `load_collection`: refer to each metric documentation for a
+        list of all possible arguments.
+
+    Returns
+    -------
+    tuple
+        (jpg_files, png_files)
+    '''
+    jpg_files = list(Paths.dataset.glob(f'**/{area}.jpg'))
+    png_files = map(lambda filename: filename.with_suffix('.png'), jpg_files)
+    return (load_collection(jpg_files, **kwargs), 
+            load_collection(png_files, **kwargs))
 
 def load_collection(pattern, grayscale=True, as_tensor=True, norm=True):
+    '''
+    Carrega uma coleção de imagens.
+
+    Parameters
+    ----------
+    pattern: iterable
+        Iterável contendo os caminhos para as imagens.
+    grayscale : bool, default=True
+        Se `True` as imagens serão convertidas em tons de cinza.
+    as_tensor : bool, default=True
+        Se `True` as imagens serão retornadas em forma de `tf.Tensor`; se `False` retornará `np.ndarray`.
+    norm: bool, default=True
+        Se `True` as imagens serão normalizadas para valores entre 0 e 1, ao longo dos eixos 1 e 2 (`height` e `width`, respectivamente).
+    
+    Returns
+    ------- 
+    tensor-like
+        Coleção de imagens `shape = [n_batch, height, width, chanels]` ou `shape = [n_batch, height, width]`, se `as_tensor = False`.
+    '''
     collection = tf.stack(list(map(lambda path: imread(path, as_gray=grayscale), pattern)))
     
     if not as_tensor:
@@ -99,46 +172,88 @@ def load_collection(pattern, grayscale=True, as_tensor=True, norm=True):
 
     return collection
 
-def load_all(glob='**/*', *args, **kwargs):
+def load_all(pattern='**/*', area=False, **kwargs):
     '''
-    Carregar todas as amostras encontradas através do `glob` fornecido.
+    Carrega todas as amostras do conjunto de treinamento encontradas através do `pattern` fornecido.
+
+    Parameters
+    ----------
+    patter : str, default='**/*'
+        Caminho das amostras relativo a `Paths.dataset`.
+    area : bool, default=False
+        Se `True` as áreas são retornadas.
+    **kwargs
+        Extra arguments to `load_collection`: refer to each metric documentation for a
+        list of all possible arguments.
+    
+    Returns
+    -------
+    list
+        (jpg_files, png_files), ou (jpg_files, png_files, areas) se `area = True`.
     '''
-    jpg_files = list(Paths.dataset.glob(f'{glob}.jpg'))
+    jpg_files = list(Paths.dataset.glob(f'{pattern}.jpg'))
     png_files = map(lambda filename: filename.with_suffix('.png'), jpg_files)
-    return (
-        load_collection(jpg_files, *args, **kwargs),
-        load_collection(png_files, *args, **kwargs)
-    )
+    output = [
+        load_collection(jpg_files, **kwargs),
+        load_collection(png_files, **kwargs)
+    ]
+    if area: 
+        output.append(list(map(lambda filename: float(filename.stem.split('_')[0]), jpg_files)))
+    return output
 
 def load_dataset(augmentation, **kwargs):
     '''
-    Carregar conjunto de dados para treinamento.
+    Carrega o conjunto de dados para treinamento.
 
-    Args:
-        grayscale (opcional): Se True, as imagens serão retornadas em tons de cinza.
-        augmentation (opcional): Se True, os dados serão aumentados em 4 vezes espelhando as imagens horizontalmente e verticalmente.
+    Parameters
+    ----------
+    augmentation : bool
+        Se `True` o conjunto de dados será aumentado utilizando `flipping_augmentation`.
+    **kwargs
+        Extra arguments to `load_collection`: refer to each metric documentation for a
+        list of all possible arguments.
     
-    Return:
-        (x_train, y_train), (x_test, y_test): Conjunto de dados.
+    Returns
+    -------
+    tuple
+        (x_train, y_train), (x_test, y_test): Conjunto de treinamento.
     '''
-    # x.shape = [N, H, W, 3]
-    # y.shape = [N, H, W, 1]
     train_jpg_files = list(Paths.train.glob('*.jpg'))
     test_jpg_files = list(Paths.test.glob('*.jpg'))
     x_train = load_collection(train_jpg_files, **kwargs)
-    y_train = load_collection((filepath.with_suffix('.png') for filepath in train_jpg_files), **kwargs)
+    y_train = load_collection(_with_suffix(train_jpg_files, '.png'), **kwargs)
     x_test = load_collection(test_jpg_files, **kwargs)
-    y_test = load_collection((filepath.with_suffix('.png') for filepath in test_jpg_files), **kwargs)
+    y_test = load_collection(_with_suffix(test_jpg_files, '.png'), **kwargs)
 
     if augmentation: # shape = [4*N, H, W, D]
-        x_train = flipping_augmentation(x_train, axis=(1, 2), concat_axis=0)
-        y_train = flipping_augmentation(y_train, axis=(1, 2), concat_axis=0)
-        x_test = flipping_augmentation(x_test, axis=(1, 2), concat_axis=0)
-        y_test = flipping_augmentation(y_test, axis=(1, 2), concat_axis=0)
+        x_train = flipping_augmentation(x_train)
+        y_train = flipping_augmentation(y_train)
+        x_test = flipping_augmentation(x_test)
+        y_test = flipping_augmentation(y_test)
 
     return (x_train, y_train), (x_test, y_test)
 
-def load_random(n:int=1, seed:Any=None, get_area:bool=False, **kwargs):
+def load_random(n=1, seed=None, get_area=False, **kwargs):
+    '''
+    Carrega amostras aleatórias do conjunto de dados de treinamento.
+
+    Parameters
+    ----------
+    n : int, default=1
+        Quantidade de amostras que devem ser coletadas.
+    seed : Any, default=None
+        Gerador de números pseodo-aleatórios.
+    get_area : bool
+        Se `True` a área das amostras serão retornada.
+    **kwargs
+        Extra arguments to `load_collection`: refer to each metric documentation for a
+        list of all possible arguments.
+    
+    Returns
+    -------
+    list
+        `[images, labels]`, ou `[images, labels, areas]` se `get_area = True`.
+    '''
     jpg_files = list(Paths.dataset.glob('**/*.jpg'))
     chosens = np.random.default_rng(seed).choice(jpg_files, size=n, replace=False)
     images = load_collection(chosens, **kwargs)
@@ -147,15 +262,24 @@ def load_random(n:int=1, seed:Any=None, get_area:bool=False, **kwargs):
     if get_area: out.append([float(jpg_file.stem) for jpg_file in chosens])
     return out
 
-def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:bool=True):
+def split_validation_data(p, shuffle=True, seed=None, verbose=True):
     '''
-    Separar dados de validação: No diretório config.DATASET, os arquivos
+    Separa dados de validação e treinamento no diretório `Paths.dataset`.
 
-    Args:
-        p: Fração das imagens que serão usadas para validação, 0 <= p <= 1.
-        shuffle (opcional): Se True, os arquivos serão escolhidos aleatoriamente.
-        seed (opcional): Seed usada para embaralhar os arquivos (obs: esta informação só será utilizada caso shuffle=True).
-        verbose (opcional): Se True, informações sobre a separação dos dados serão exibidas ao final do procedimento.
+    Parameters
+    ----------
+    p : float
+        Fração das imagens que serão usadas para validação, `0 <= p <= 1`.
+    shuffle : bool, default=True
+        Se `True` os arquivos serão escolhidos aleatoriamente.
+    seed : Any, default=None
+        Gerador de números pseodo-aleatórios (obs: esta informação só será utilizada se `shuffle = True`).
+    verbose : bool, default=True
+        Se `True`, informações sobre a separação dos dados serão exibidas ao final do procedimento.
+    
+    Returns
+    -------
+    None
     '''
     all_jpg_files = list(Paths.dataset.glob('**/*.jpg'))
     n_files = len(all_jpg_files)
@@ -181,22 +305,38 @@ def split_validation_data(p:float, shuffle:bool=True, seed:Any=None, verbose:boo
 
 def regularize_raw_data(pattern=None, mode='crop'):
     '''
-    Regularizar imagens para o padrão de treinamento.
+    Regulariza as amostras de `Paths.raw` no padrão de treinamento, e as move para `Paths.processed`.
 
-    Args:
-        pattern: Lista das amostras que serão regularizadas. Ex.: ['118.032_mm2', '64.760_mm2', ...]
-        mode: Modo com o qual as imagens raw serão ajustadas.
-            |-> 'crop': Recorta as imagens no formado padrão (256, 256) de modo com que o centro do corte corresponda ao centro de massa da máscara.
-                * Este tipo de ajuste é indicado para imagens que possuem dimensões widescreen ou semelhantes (ex.: 9:20 ou 16:9), 
-                  ou para imagens cuja a região do pellet seja pequena.
+    Parameters
+    ----------
+    pattern : iterable or None, default=None
+        Iterável contendo as amostras da pasta `Paths.raw` que serão regularizadas. Se `pattern = None` todas as amostras serão regularizadas.
+    mode: str, list ou None, modo com o qual as imagens serão ajustadas.
+        > `'crop'`: Recorta as imagens no formado padrão `Default.size` 
+                    de modo com que o centro do corte corresponda ao centro de massa da máscara.
+            Obs.: Este tipo de ajuste é indicado para imagens que possuem dimensões widescreen ou semelhantes (ex.: 9:20 ou 16:9), 
+                ou para imagens cuja a região do pellet seja pequena.
+        > `'resize'`: Redimensiona a imagem para que atenda os padrões de treinamento `Default.size`.
+            Obs.: Este tipo de ajuste é indicado para imagens que já possuem uma boa qualidade, 
+                porém com dimensões diferentes daquelas utilizadas nos dados de treinamento
+    
+    Returns
+    -------
+    None
+    
+    Exemples
+    --------
+    >>> regularize_raw_data(mode='crop')
 
-            - 'resize': Redimensiona a imagem para que atenda os padrões de treinamento.
-                * Este tipo de ajuste é indicado para imagens que já possuem uma boa qualidade, 
-                  porém com dimensões diferentes daquelas utilizadas nos dados de treinamento
+    Neste exemplo, todas as amostras em `Paths.raw` serão recortadas no formato de treinamento.
+
+    >>> regularize_raw_data(['118.032_mm2', '64.760_mm2'], mode=['crop', 'resize'])
+
+    Já neste caso, apenas as amostras especificadas serão ajustadas, cada uma com seu respectivo método.
     '''
     if pattern is None: 
         pattern = map(lambda filepath: filepath.stem, Paths.raw.glob('*.jpg'))
-    for sample in pattern:
+    for i, sample in enumerate(pattern):
         jpg_raw_file = Paths.raw/(sample + '.jpg')
         png_raw_file = jpg_raw_file.with_suffix('.png')
 
@@ -206,7 +346,9 @@ def regularize_raw_data(pattern=None, mode='crop'):
         img = imread(jpg_raw_file)
         msk = imread(png_raw_file)
 
-        if mode == 'crop':
+        m = mode[i] if type(mode) is not str else mode
+
+        if m == 'crop':
             y, x = center_of_mass(msk)
             x, y = int(x), int(y)
 
@@ -216,7 +358,7 @@ def regularize_raw_data(pattern=None, mode='crop'):
             imsave(jpg_final_file, imread(jpg_raw_file)[y-dh:y+dh, x-dw:x+dw])
             imsave(png_final_file, imread(png_raw_file)[y-dh:y+dh, x-dw:x+dw])
         
-        elif mode == 'resize':
+        elif m == 'resize':
             w, h = img.shape[:2]
             if w != h:
                 d = abs(w - h)
@@ -228,7 +370,11 @@ def regularize_raw_data(pattern=None, mode='crop'):
 
 def get_info():
     '''
-    Pegar informações sobre as amostras do dataset.
+    Coleta informações sobre as amostras do conjunto de treinamento.
+
+    Returns
+    -------
+    pd.DataFrame
     '''
     return pd.read_csv(Paths.dataset/'info.csv')
 
@@ -236,7 +382,19 @@ def update_info():
     '''
     Atualizar tabela de informações sobre o dataset.
     '''
-    pd.DataFrame(
-        [],
-        columns=['area', 'train', 'freq', 'slope', 'label_pixel_area']
-    ).sort_values('area').to_csv(os.path.join(config.DATASET, 'info.csv'), index=False)
+    dataframe = []
+    for jpg_file in Paths.dataset.glob('**/*.jpg'):
+        img = imread(jpg_file, as_gray= True)
+        mask = imread(jpg_file.with_suffix('.png'), as_gray=True)
+        scale, d_scale = find_scale(img)
+        slope, d_slope = find_slope(img)
+        dataframe.append({
+            'area': float(jpg_file.stem.split('_')[0]),
+            'group': jpg_file.parent.stem, 
+            'scale': scale,
+            'delta_scale': d_scale,
+            'slope': slope,
+            'delta_slope': d_slope,
+            'area_pixel': np.sum((mask - mask.min())/(mask.max() - mask.min()))
+        })
+    pd.DataFrame(dataframe).sort_values('area').to_csv(Paths.dataset/'info.csv', index=False)
