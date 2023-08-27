@@ -198,7 +198,7 @@ def load_all(pattern='**/*', area=False, **kwargs):
         load_collection(png_files, **kwargs)
     ]
     if area: 
-        output.append(list(map(lambda filename: float(filename.stem.split('_')[0]), jpg_files)))
+        output.append(np.array(list(map(lambda filename: float(filename.stem.split('_')[0]), jpg_files))))
     return output
 
 def load_dataset(augmentation, **kwargs):
