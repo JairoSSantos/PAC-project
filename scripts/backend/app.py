@@ -14,7 +14,7 @@ import numpy as np
 from skimage.color import rgb2gray
 from skimage.transform import resize
 from skimage.filters import roberts
-#from skimage import morphology
+from skimage import morphology
 from scipy import ndimage
 from src.measure import find_scale
 from tensorflow.keras.saving import load_model
@@ -38,19 +38,18 @@ def image_to_base64(image):
 
 def build_overlay(mask, image):
     contour = Image.fromarray(roberts(mask).astype(bool))
-    label = Image.fromarray(np.stack([255*np.zeros(mask.shape)]*2 + [255*mask], axis=-1).astype(np.uint8)) #.convert('RGB')
-    overlay = Image.composite(Image.new('RGB', image.size, (255, 255, 0)), Image.blend(image, label, 0.2), contour)
+    label = Image.fromarray((120*mask).astype(np.uint8)).convert('L')
+    overlay = Image.composite(Image.new('RGB', image.size, (255, 255, 0)), Image.composite(Image.new('RGB', image.size, (50, 200, 255)), image, label), contour)
     return image_to_base64(overlay)
 
 @APP.route('/', methods=['POST'])
 def upload():
     image = get_image(request.files['image'])
-    print(image.width, image.height)
     post_process = json.loads(request.values.get('post_process'))
 
     gray_image = rgb2gray(resize(np.array(image), IMG_SIZE))
     scale = find_scale(gray_image)[0]
-    pred = MODEL.predict(gray_image[np.newaxis, ..., np.newaxis])[0, ..., 0]
+    pred = MODEL.predict(gray_image[np.newaxis, ..., np.newaxis], verbose=False)[0, ..., 0]
     pred = pred > 0.5
 
     for func, config in post_process.items():
@@ -95,4 +94,4 @@ def result_as_image():
     })
 
 if __name__ == '__main__':
-    APP.run(port=5000, debug=True, threaded=True)
+    APP.run(port=5000, host='0.0.0.0', debug=True, threaded=True)
