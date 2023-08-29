@@ -1,0 +1,14 @@
+xtick.top: True
+xtick.minor.top: True
+xtick.direction: in
+xtick.minor.visible: True
+
+ytick.right: True
+ytick.minor.right: True
+ytick.direction: in
+ytick.minor.visible: True
+
+axes.labelsize: 13
+legend.shadow: True
+legend.framealpha: 1
+legend.fontsize: 9
