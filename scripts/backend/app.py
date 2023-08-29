@@ -22,8 +22,9 @@ from tensorflow.keras.saving import load_model
 
 MODEL = load_model('unet-0.41.h5', compile=False)
 IMG_SIZE = (256, 256)
-PAD_BY_WIDTH = 1/20 # proporção margem por largura da imagem
-TEXT_LIM = 40 # limite de caracteres por linha de texto
+PAD_BY_WIDTH = 1/30 # proporção margem por largura da imagem
+TEXT_LIM = 50 # limite de caracteres por linha de texto
+SAVING_SIZE = (1000, 1000)
 
 APP = Flask(__name__)
 
@@ -65,7 +66,7 @@ def upload():
 
 @APP.route('/result', methods=['POST'])
 def result_as_image():
-    image = get_image(request.files['image'])
+    image = get_image(request.files['image']).resize(SAVING_SIZE)
     info = json.loads(request.values.get('informations'))
 
     w, h = image.size
@@ -74,7 +75,7 @@ def result_as_image():
 
     items = []
     for k, v in info.items():
-        text = f'{k}: {v}'
+        text = f'{k}{v}' if (k == '' or v == '') else f'{k}: {v}'
         if len(text) > TEXT_LIM:
             items += wrap(text, width=TEXT_LIM)
         else: items.append(text)
@@ -84,7 +85,7 @@ def result_as_image():
     draw = ImageDraw.Draw(result)
     result.paste(image, (pad, pad))
 
-    y = y0 = 2*pad + h
+    y = 2*pad + h
     for item in items:
         draw.text((int(1.5*pad), y), item, (0, 0, 0), font=font)
         y += 2*pad

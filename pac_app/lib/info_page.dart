@@ -122,12 +122,6 @@ class _InfoPageState extends State<InfoPage> {
     if (_saveSettings['Área']) info.addAll({'Área':_infoMessages['Área']});
     if (_saveSettings['Dimensões']) info.addAll({'Dimensões':_infoMessages['Dimensões']});
     if (_saveSettings['Comentários']) info.addAll(_additionalInfo);
-    if (_saveSettings['Pós-processamento']) {
-      info.addAll({'Pós-processamento':''});
-      for (final PyFunction pyfunc in _postProcess){
-        info.addAll({pyfunc.name: pyfunc.asMap()});
-      }
-    }
     final response = await sendImage(path, 
       route: 'result',
       fields: {'informations': json.encode(info)}
@@ -176,15 +170,15 @@ class _InfoPageState extends State<InfoPage> {
       ),
       actions: [
           TextButton(
+            onPressed: () => Navigator.pop(context), 
+            child: const Text('Cancelar')
+          ),
+          TextButton(
             onPressed: () {
               setState(() => _additionalInfo[title]=content);
               Navigator.pop(context);
             }, 
             child: const Text('Salvar')
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context), 
-            child: const Text('Cancelar')
           )
         ],
     )
@@ -246,8 +240,7 @@ class _InfoPageState extends State<InfoPage> {
       'Segmentação': true,
       'Área': true,
       'Dimensões': true,
-      'Comentários': true,
-      'Pós-processamento': false,
+      'Comentários': true
     };
     _image = FileImage(File(widget.imagePath));
     _segRecived = false;
@@ -333,7 +326,7 @@ class _InfoPageState extends State<InfoPage> {
                   infoWidget(element.key, element.value,
                     trailing: IconButton(
                       onPressed: () => setState(() => _additionalInfo.remove(element.key)), 
-                      icon: const Icon(Icons.delete)
+                      icon: const Icon(Icons.close)
                     )
                   ),
                   if (_segRecived)
@@ -375,7 +368,7 @@ class _InfoPageState extends State<InfoPage> {
                             (error) => showErrorMessage(context, 'Erro!', error.toString())
                           );
                         }), 
-                        icon: const Icon(Icons.delete)
+                        icon: const Icon(Icons.close)
                       )
                     )
                   ),
