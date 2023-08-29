@@ -1,6 +1,6 @@
-import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).parents[2]))
+# import sys
+# from pathlib import Path
+# sys.path.append(str(Path(__file__).parents[2]))
 
 from flask import Flask, request, jsonify
 
@@ -17,16 +17,39 @@ from skimage.filters import roberts
 from skimage import morphology
 from skimage.segmentation import mark_boundaries
 from scipy import ndimage
-from src.measure import find_scale
+from scipy.stats import mode
 from tensorflow.keras.saving import load_model
 
-MODEL = load_model('unet-0.41.h5', compile=False)
+MODEL = load_model('app/unet-0.41.h5', compile=False)
 IMG_SIZE = (256, 256)
 PAD_BY_WIDTH = 1/30 # proporção margem por largura da imagem
 TEXT_LIM = 50 # limite de caracteres por linha de texto
 SAVING_SIZE = (1000, 1000)
 
 APP = Flask(__name__)
+
+def FFT(x):
+    return np.abs(np.fft.fft(x))
+
+def Cxx(x):
+    return np.correlate(x, x, mode='same')
+
+def PSD(x):
+    return FFT(Cxx(x))
+
+def find_scale(img, sigma=2):
+    Iy, Ix = np.gradient(img)
+    fs, delta = [], []
+    for dI in (Ix, Iy.T):
+        freqs = np.fft.fftfreq(dI.shape[1], 1)
+        pos = freqs > 0
+        dI_gauss = ndimage.gaussian_filter(dI, sigma)
+        D = np.apply_along_axis(lambda y: freqs[pos][np.argmax(PSD(y)[pos])], 1, dI_gauss)
+        fs.append(mode(D, keepdims=True).mode[0])
+        delta.append(0.5/dI.shape[1])
+    
+    (fx, fy), (dx, dy) = fs, delta
+    return fx*fy, np.sqrt((dx*fy)**2 + (dy*fx)**2)
 
 def get_image(image_file):
     buffered = BytesIO()
@@ -94,5 +117,5 @@ def result_as_image():
         'result': image_to_base64(result)
     })
 
-if __name__ == '__main__':
-    APP.run(port=5000, host='0.0.0.0', debug=True, threaded=True)
+# if __name__ == '__main__':
+#     APP.run(port=5000, host='0.0.0.0', debug=True, threaded=True)
