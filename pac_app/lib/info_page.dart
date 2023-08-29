@@ -32,7 +32,7 @@ class _InfoPageState extends State<InfoPage> {
 
   late Map _infoMessages; // resultados do modelo
   late Map _additionalInfo; // informações adicionadas pelo usuário
-  late Map _savingModes;
+  late Map _saveSettings;
   late List _postProcess; // processamentos adicionais
   late MemoryImage _segmentation; // segmentação
   late ImageProvider _image; // amostra
@@ -41,7 +41,7 @@ class _InfoPageState extends State<InfoPage> {
   late bool _isLoading; // true para indicar algum processo em andamento
   late String _unit;
 
-  void setLoading(value) => setState((){_isLoading = value;});
+  void setLoading(value) => setState(() => _isLoading=value);
 
   Future<void> getResults() async {
     setLoading(true);
@@ -54,16 +54,51 @@ class _InfoPageState extends State<InfoPage> {
       }
     );
     final realSize = Default.imageSize * math.sqrt(response['scale']);
-    final imageData = const Base64Decoder().convert(response['segmentation'].split(',').last);
+    final segData = const Base64Decoder().convert(response['segmentation'].split(',').last);
     setState((){
       _infoMessages['Área'] = '${response['area'].toStringAsPrecision(4)} $_unit\u00B2';
       _infoMessages['Dimensões'] = '${realSize.width.round()} $_unit \u00D7 ${realSize.width.round()} $_unit';
-      _segmentation = MemoryImage(imageData);
+      _segmentation = MemoryImage(segData);
       _segRecived = true;
       _viewSeg = true;
     });
     setLoading(false);
   }
+
+  void showSaveSettings(BuildContext context) => showDialog(
+    context: context, 
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('Salvar'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (MapEntry element in _saveSettings.entries)
+            CheckboxListTile(
+              title: Text(element.key),
+              value: element.value, 
+              onChanged: (newValue) => setState(() {
+                _saveSettings[element.key] = newValue;
+              })
+            )
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context), 
+            child: const Text('Cancelar')
+          ),
+          TextButton(
+            onPressed: (){
+              save();
+              Navigator.pop(context);
+            }, 
+            child: const Text('Salvar')
+          ),
+        ]
+      )
+    )
+  );
 
   Future<String> saveImage({String? path}) async {
     setLoading(true);
@@ -75,14 +110,24 @@ class _InfoPageState extends State<InfoPage> {
     return (success ?? false) ? 'Imagem salva!' : 'Erro ao salvar imagem!';
   }
 
-  Future<String> saveResult() async {
+  Future<void> save() async {
     setLoading(true);
-    final path = '${(await getTemporaryDirectory()).path}/sample.jpeg';
-    await File(path).writeAsBytes(_segmentation.bytes);
+    String path = widget.imagePath;
+    if (_saveSettings['Segmentação']) {
+      path = '${(await getTemporaryDirectory()).path}/sample.jpeg';
+      await File(path).writeAsBytes(_segmentation.bytes);
+    }
 
-    var info = {};
-    info.addAll(_infoMessages);
-    info.addAll(_additionalInfo);
+    Map info = {};
+    if (_saveSettings['Área']) info.addAll({'Área':_infoMessages['Área']});
+    if (_saveSettings['Dimensões']) info.addAll({'Dimensões':_infoMessages['Dimensões']});
+    if (_saveSettings['Comentários']) info.addAll(_additionalInfo);
+    if (_saveSettings['Pós-processamento']) {
+      info.addAll({'Pós-processamento':''});
+      for (final PyFunction pyfunc in _postProcess){
+        info.addAll({pyfunc.name: pyfunc.asMap()});
+      }
+    }
     final response = await sendImage(path, 
       route: 'result',
       fields: {'informations': json.encode(info)}
@@ -90,7 +135,7 @@ class _InfoPageState extends State<InfoPage> {
     final imageData = const Base64Decoder().convert(response['result'].split(',').last);
     await File(path).writeAsBytes(imageData);
     setLoading(false);
-    return saveImage(path: path);
+    saveImage(path: path).then((message) => showQuickMessage(context, message));
   }
 
   void showQuickMessage(BuildContext context, String message){
@@ -99,81 +144,42 @@ class _InfoPageState extends State<InfoPage> {
     );
   }
 
-  void showErrorMessage(BuildContext context, String title, String message){
-    showDialog(
-      context: context, 
-      builder: (_) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context), 
-            child: const Text('Ok')
-          )
-        ]
-      )
-    );
-  }
+  void showErrorMessage(BuildContext context, String title, String message) => showDialog(
+    context: context, 
+    builder: (_) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context), 
+          child: const Text('Ok')
+        )
+      ]
+    )
+  );
 
-  void addInfo(BuildContext context){
-    var title = '';
-    var content = '';
-    showDialog(
-      context: context, 
-      builder: (_) => AlertDialog(
-        title: TextField(
-          decoration: const InputDecoration(
-            border: UnderlineInputBorder(),
-            labelText: 'Título',
-          ),
-          onChanged: (value){title = value;},
+  void addInfo(BuildContext context, {String title='', String content=''}) => showDialog(
+    context: context, 
+    builder: (_) => AlertDialog(
+      title: TextField(
+        decoration: const InputDecoration(
+          border: UnderlineInputBorder(),
+          labelText: 'Título',
         ),
-        content: TextField(
-          decoration: const InputDecoration(
-            border: UnderlineInputBorder(),
-            labelText: 'Conteúdo',
-          ),
-          onChanged: (value){content = value;},
+        onChanged: ((value) => title=value),
+      ),
+      content: TextField(decoration: const InputDecoration(
+          border: UnderlineInputBorder(),
+          labelText: 'Conteúdo',
         ),
-        actions: [
-            TextButton(
-              onPressed: () {
-                setState((){_additionalInfo[title] = content;});
-                Navigator.pop(context);
-              }, 
-              child: const Text('Salvar')
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context), 
-              child: const Text('Cancelar')
-            )
-          ],
-      )
-    );
-  }
-
-  void setUnit(BuildContext context) {
-    var unit = _unit;
-    showDialog(
-      context: context, 
-      builder: (_) => AlertDialog(
-        title: const Text('Alterar unidade'),
-        content: TextField(
-          decoration: InputDecoration(
-            border: const UnderlineInputBorder(),
-            hintText: unit
-          ),
-          onChanged: (value) {unit = value;}
-        ),
-        actions: [
+        onChanged: ((value) => content=value),
+      ),
+      actions: [
           TextButton(
-            onPressed: () => setState((){
-              _unit = unit;
-              getResults().catchError(
-                (error) => showErrorMessage(context, 'Erro!', error.toString())
-              );
+            onPressed: () {
+              setState(() => _additionalInfo[title]=content);
               Navigator.pop(context);
-            }), 
+            }, 
             child: const Text('Salvar')
           ),
           TextButton(
@@ -181,27 +187,54 @@ class _InfoPageState extends State<InfoPage> {
             child: const Text('Cancelar')
           )
         ],
-      )
-    );
-  }
+    )
+  );
+    
+    void setUnit(BuildContext context, String unit) => showDialog(
+    context: context, 
+    builder: (_) => AlertDialog(
+      title: const Text('Alterar unidade'),
+      content: TextField(
+        decoration: InputDecoration(
+          border: const UnderlineInputBorder(),
+          hintText: unit
+        ),
+        onChanged: (value) {unit = value;}
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => setState((){
+            _unit = unit;
+            getResults().catchError(
+              (error) => showErrorMessage(context, 'Erro!', error.toString())
+            );
+            Navigator.pop(context);
+          }), 
+          child: const Text('Salvar')
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context), 
+          child: const Text('Cancelar')
+        )
+      ],
+    )
+  );
 
-  Widget infoWidget(String title, String subtitle, {Widget? trailing}){
-    return Card(
-      child: ListTile(
-        title: Padding(
-          padding: const EdgeInsets.only(bottom: 10.0, top: 10.0),
-          child: Text(title),
-        ),
-        subtitle: Center(
-          child: Text(
-            subtitle, 
-            style: const TextStyle(fontSize: 20, fontWeight:FontWeight.bold)
-          )
-        ),
-        trailing: trailing,
-      )
-    );
-  }
+  Widget infoWidget(String title, String subtitle, {Widget? trailing}) => Card(
+    child: ListTile(
+      title: Padding(
+        padding: const EdgeInsets.only(bottom: 10.0, top: 10.0),
+        child: Text(title),
+      ),
+      subtitle: Center(
+        child: Text(
+          subtitle, 
+          style: const TextStyle(fontSize: 20, fontWeight:FontWeight.bold)
+        )
+      ),
+      trailing: trailing,
+    )
+  );
 
   @override
   void initState(){
@@ -209,9 +242,12 @@ class _InfoPageState extends State<InfoPage> {
 
     _infoMessages = <String, String>{};
     _additionalInfo = <String, String>{};
-    _savingModes = {
-      'imagem': saveImage, 
-      'resultado': saveResult
+    _saveSettings = {
+      'Segmentação': true,
+      'Área': true,
+      'Dimensões': true,
+      'Comentários': true,
+      'Pós-processamento': false,
     };
     _image = FileImage(File(widget.imagePath));
     _segRecived = false;
@@ -240,20 +276,7 @@ class _InfoPageState extends State<InfoPage> {
             scaleY: 0.4,
             child: const CircularProgressIndicator(color: Colors.white)
           ),
-          PopupMenuButton<String>(
-            onSelected: (value) => _savingModes[value]().then(
-              (message) => showQuickMessage(context, message),
-              onError: (error) => showErrorMessage(context, 'Erro ao salvar $value!', error.toString()),
-            ),
-            itemBuilder: (_) => [
-              for (final value in _savingModes.keys)
-              PopupMenuItem<String>(
-                value: value,
-                child: Text('Salvar $value')
-              ),
-            ],
-            icon: const Icon(Icons.save)
-          ),
+          IconButton(onPressed: () => showSaveSettings(context), icon: const Icon(Icons.save)),
           PopupMenuButton<String>(
             itemBuilder: (_) => [
               for (final pyfunc in Morphology.values)
@@ -263,7 +286,7 @@ class _InfoPageState extends State<InfoPage> {
               ),
               const PopupMenuItem<String>(
                 value: 'add_info',
-                child: Text('Adicionar informação')
+                child: Text('Adicionar comentário')
               ),
               const PopupMenuItem<String>(
                 value: 'set_unit',
@@ -275,7 +298,7 @@ class _InfoPageState extends State<InfoPage> {
               if (value == 'add_info'){
                 addInfo(context);
               } else if (value == 'set_unit') {
-                setUnit(context);
+                setUnit(context, _unit);
               } else {
                 setState(() => _postProcess.add(Morphology.values.firstWhere(
                   (element) => element.name == value).pyFunc()

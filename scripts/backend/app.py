@@ -11,10 +11,11 @@ import json
 from textwrap import wrap
 
 import numpy as np
-from skimage.color import rgb2gray
+from skimage.color import rgb2gray, label2rgb
 from skimage.transform import resize
 from skimage.filters import roberts
 from skimage import morphology
+from skimage.segmentation import mark_boundaries
 from scipy import ndimage
 from src.measure import find_scale
 from tensorflow.keras.saving import load_model
@@ -37,10 +38,9 @@ def image_to_base64(image):
     return base64.b64encode(buffered.getvalue()).decode()
 
 def build_overlay(mask, image):
-    contour = Image.fromarray(roberts(mask).astype(bool))
     label = Image.fromarray((120*mask).astype(np.uint8)).convert('L')
-    overlay = Image.composite(Image.new('RGB', image.size, (255, 255, 0)), Image.composite(Image.new('RGB', image.size, (50, 200, 255)), image, label), contour)
-    return image_to_base64(overlay)
+    overlay = Image.composite(Image.new('RGB', image.size, (50, 200, 255)), image, label)
+    return image_to_base64(Image.fromarray((mark_boundaries(np.array(overlay), mask, (1, 1, 0))*255).astype(np.uint8)))
 
 @APP.route('/', methods=['POST'])
 def upload():
