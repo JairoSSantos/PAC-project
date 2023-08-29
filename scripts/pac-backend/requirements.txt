@@ -6,3 +6,4 @@ scikit-image
 ipython
 Flask
 tensorflow
+gunicorn

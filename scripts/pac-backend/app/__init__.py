@@ -1,7 +1,3 @@
-# import sys
-# from pathlib import Path
-# sys.path.append(str(Path(__file__).parents[2]))
-
 from flask import Flask, request, jsonify
 
 import base64
@@ -116,6 +112,3 @@ def result_as_image():
     return jsonify({
         'result': image_to_base64(result)
     })
-
-# if __name__ == '__main__':
-#     APP.run(port=5000, host='0.0.0.0', debug=True, threaded=True)
