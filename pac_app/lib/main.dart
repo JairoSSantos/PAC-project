@@ -1,42 +1,39 @@
-import 'package:camera/camera.dart';
+// import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:pac_app/info_page.dart';
+import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  availableCameras().then(
-    (cameras) => runApp(MaterialApp(home: App(camera: cameras.first)))
-  );
+void main() async {
+  runApp(MaterialApp(home: App()));
 }
 
 class App extends StatefulWidget {
-  final CameraDescription camera;
 
-  const App({super.key, required this.camera});
+  const App({super.key});
 
   @override
   State<App> createState() => _AppState();
 }
 
 class _AppState extends State<App> {
-  late CameraController controller;
 
-  // sincronizado com: FlashMode.values = [off, auto, always, torch]
-  final _flashIcons = <Icon>[
-    const Icon(Icons.flash_off), // não usar flash
-    const Icon(Icons.flash_auto), // modo automático
-    const Icon(Icons.flash_on), // usar flash quando tirar a foto
-    const Icon(Icons.flare_sharp) // manter flash ligado
-  ];
-
-  late int _flashModeIndex;
   late bool _isLoading;
-  late double _baseScaleZoom;
-  late double _scaleZoom;
-  var _maxScaleZoom = 1.0;
+  final _introductionText = {
+    'Como tirar uma boa foto?': [
+      ['1º', 'Com a amostra sobre o papel milímetrado, posicione a câmera paralelamente à superfície e tire a foto (lembre-se de manter o ambiente bem iluminado).'], 
+      ['2º', 'Rotacione a imagem para deixá-la alinhada com as linhas do papel milimetrado.'], 
+      ['3º', 'Recorte a imagem mantendo a maior parte (60-80%) de papel milímetrado.'],
+      ['', 'Observação: Para facilitar a avaliação dos resultados, recorte a imagem posicionando os seus cantos sobre vértices do papel milímetrado.']
+    ],
+    'Como avaliar os resultados?': [
+      ['\u2713', 'Primeiramente, verifique se a escala de conversão foi encontrada com sucesso, observando as dimensões fornecidas e comparando com o observado na imagem.'],
+      ['\u2713', 'Quanto à segmentação, é possível dar zoom na imagem e verificar o grau do erro no resultado.'],
+      ['\u2713', 'Caso seja observado que houve uma boa segmentação, porém com pequenos buracos ou excessos, você pode aplicar a função "Remover buracos" ou "Remover excessos", respectivamente.'],
+    ]
+  };
 
   void showErrorMessage(BuildContext context, String title, String message){
     showDialog(
@@ -58,26 +55,9 @@ class _AppState extends State<App> {
     _isLoading = value;
   });
 
-  void updateFlashMode() => setState((){
-      _flashModeIndex = (_flashModeIndex + 1) % FlashMode.values.length;
-      controller.setFlashMode(FlashMode.values[_flashModeIndex]);
-  });
-
-  Future<String?> takePicture() async {
-    XFile imageXFile = await controller.takePicture();
+  Future<String?> pickImage(ImageSource source) async {
     setLoading(true);
-    await controller.pausePreview();
-    CroppedFile? croppedFile = await ImageCropper().cropImage(
-      sourcePath: imageXFile.path,
-      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
-    );
-    return croppedFile?.path;
-  }
-
-  Future<String?> pickImage() async {
-    setLoading(true);
-    controller.pausePreview();
-    XFile? imageXFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    XFile? imageXFile = await ImagePicker().pickImage(source: source);
     String? imagePath;
     if (imageXFile != null){
       CroppedFile? croppedImage = await ImageCropper().cropImage(
@@ -102,88 +82,74 @@ class _AppState extends State<App> {
         MaterialPageRoute(builder: (context) => InfoPage(imagePath: imagePath))
       );
     }
-    controller.resumePreview();
     setLoading(false);
   }
 
   @override
   void initState() {
     super.initState();
-    _flashModeIndex = 0; // iniciar com FlashMode.off
     _isLoading = true;
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp
     ]);
-
-    controller = CameraController(widget.camera, ResolutionPreset.max, enableAudio: false);
-    controller.initialize().then(
-      (_) {
-        controller.getMinZoomLevel().then((value) {_baseScaleZoom = _scaleZoom = value;});
-        controller.getMaxZoomLevel().then((value) {_maxScaleZoom = value;});
-        controller.setFocusPoint(const Offset(0.5, 0.5));
-        controller.setFlashMode(FlashMode.values[_flashModeIndex]);
-        setLoading(false);
-      },
-      onError: (error) => debugPrint(error.toString())
-    );
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(title: const Text('Pellet Area Calculator')),
-      backgroundColor: Colors.white,
       body: Center(
-        child: (_isLoading || !controller.value.isInitialized) ? 
-        const CircularProgressIndicator() :
-        GestureDetector(
-          child: CameraPreview(controller),
-          onScaleStart: (details) {_baseScaleZoom = _scaleZoom;},
-          onScaleUpdate: (details) {
-            _scaleZoom = (_baseScaleZoom * details.scale).clamp(1, _maxScaleZoom);
-            controller.setZoomLevel(_scaleZoom);
-          }
-        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: ListView(
+            children: [
+              for (final element in _introductionText.entries)
+              Card(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2, bottom: 2),
+                      child: Text(element.key, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))
+                    ),
+                    for (final List<String> value in element.value)
+                    ListTile(
+                      leading: Text(value[0], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      title: Text(value[1]),
+                      minLeadingWidth : 0,
+                      minVerticalPadding: 10,
+                    ),
+                  ],
+                )
+              ),
+            ],
+          ),
+        )
       ),
-      floatingActionButton: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: <Widget>[
-          FloatingActionButton(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.blue,
-            onPressed: () => updateFlashMode(),
-            heroTag: 'flash',
-            child: _flashIcons[_flashModeIndex],
-          ),
-          FloatingActionButton(
-            backgroundColor: Colors.deepOrange,
-            foregroundColor: Colors.white,
-            onPressed: () => takePicture().then(
+      floatingActionButton: SpeedDial(
+        icon: Icons.add,
+        children: [
+          SpeedDialChild(
+            onTap: () => pickImage(ImageSource.camera).then(
               (path) => pushInfoPage(context, path),
-              onError: (error) => showErrorMessage(context, 'Erro ao tirar foto!', error.toString())
+              onError: (error) => showErrorMessage(context, 'Erro ao utilizar a câmera!', error.toString())
             ),
-            heroTag: 'camera',
-            child: const Icon(Icons.camera_alt)
+            child: const Icon(Icons.camera_alt_outlined)
           ),
-          FloatingActionButton(
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.blue,
-            onPressed: () => pickImage().then(
+          SpeedDialChild(
+            onTap: () => pickImage(ImageSource.gallery).then(
               (path) => pushInfoPage(context, path),
               onError: (error) => showErrorMessage(context, 'Erro ao escolher imagem!', error.toString())
             ),
-            heroTag: 'gellery',
-            child: const Icon(Icons.photo),
-          ),
-        ]
+            child: const Icon(Icons.image_outlined)
+          )
+        ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.miniCenterFloat,
+      bottomNavigationBar: BottomAppBar(
+        shape: const CircularNotchedRectangle(),
+        child: Container(height: 50.0),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndDocked,
     );
   }
 }
