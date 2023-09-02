@@ -50,7 +50,7 @@ class _AppState extends State<App> {
     );
   }
 
-  Future<String?> pickImage(ImageSource source) async {
+  Future<List<String?>> pickImage(ImageSource source) async {
     XFile? imageXFile = await ImagePicker().pickImage(source: source);
     String? imagePath;
     if (imageXFile != null){
@@ -60,20 +60,14 @@ class _AppState extends State<App> {
       );
       imagePath = croppedImage?.path;
     }
-    return imagePath;
+    return [imageXFile!.path, imagePath];
   }
 
-  Future<void> pushInfoPage(BuildContext context, String? imagePath) async {
-    /*
-    Este procedimento será chamado após cropImage,
-    sendo necessário, portanto, verificar se o usuário 
-    aceitou proseguir para InfoPage `assert (imagePath is String)`
-    ou se o usuário decidiu retornar à câmera `assert (imagePath == null)`.
-    */
-    if (imagePath != null){
+  Future<void> pushInfoPage(BuildContext context, String? originalPath, String? croppedPath) async {
+    if (originalPath != null && croppedPath != null){
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => Root(imagePath: imagePath))
+        MaterialPageRoute(builder: (context) => Root(originalPath: originalPath, initialPath: croppedPath))
       );
     }
   }
@@ -123,14 +117,14 @@ class _AppState extends State<App> {
         children: [
           SpeedDialChild(
             onTap: () => pickImage(ImageSource.camera).then(
-              (path) => pushInfoPage(context, path),
+              (paths) => pushInfoPage(context, paths[0], paths[1]),
               onError: (error) => showErrorMessage(context, 'Erro ao utilizar a câmera!', error.toString())
             ),
             child: const Icon(Icons.camera_alt_outlined)
           ),
           SpeedDialChild(
             onTap: () => pickImage(ImageSource.gallery).then(
-              (path) => pushInfoPage(context, path),
+              (paths) => pushInfoPage(context, paths[0], paths[1]),
               onError: (error) => showErrorMessage(context, 'Erro ao escolher imagem!', error.toString())
             ),
             child: const Icon(Icons.image_outlined)

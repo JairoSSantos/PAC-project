@@ -15,6 +15,7 @@ class Default{
   static const double imageWidth = 256;
   static const Size imageSize = Size(imageWidth, imageHeight);
   static const String unit = 'mm';
+  static const int precision = 3;
 }
 
 class PyParamConfig<T>{

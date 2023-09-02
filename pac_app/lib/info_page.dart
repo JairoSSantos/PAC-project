@@ -7,6 +7,9 @@ import 'package:photo_view/photo_view.dart';
 import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_speed_dial/flutter_speed_dial.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 
 const url = 'http://192.168.15.146:5000';
 
@@ -17,6 +20,18 @@ Future<Map> sendImage(String path, {String? route, Map<String, String>? fields})
   request.fields.addAll(fields ?? {});
   final response = await http.Response.fromStream(await request.send());
   return json.decode(response.body.toString());
+}
+
+num sum(Iterable<num> sample) => sample.reduce((a, b) => a + b);
+
+Map<String, num> statistics(Iterable<num> sample){
+  final mean = sum(sample)/sample.length;
+  final std = math.sqrt(sum(sample.map((x) => math.pow(x - mean, 2)))/sample.length);
+  return {
+    'Média': mean,
+    'Desvio padrão': std,
+    'Desvio relativo (%)': (100*std/mean)
+  };
 }
 
 class Result {
@@ -60,19 +75,10 @@ class Result {
   void changeViewState() => viewSegState=!viewSegState;
 
   List<String> get summarize => [
-    area.toStringAsPrecision(4).toString(),
-    scale.toStringAsExponential(2),
+    area.toStringAsFixed(Default.precision),
+    scale.toStringAsExponential(Default.precision),
     '${dims.width.round()} \u00D7 ${dims.height.round()}'
   ];
-
-  // ignore: non_constant_identifier_names
-  // String get Area => finished ? '${area.toStringAsPrecision(4)} $unit\u00B2' : '';
-  
-  // // ignore: non_constant_identifier_names
-  // String get Scale => finished ? '${scale.toStringAsExponential()} $unit\u207B\u00B2' : '';
-
-  // // ignore: non_constant_identifier_names
-  // String get Dims => finished ? '${dims.width.round()} $unit \u00D7 ${dims.height.round()} $unit' : '';
 
   dynamic get currentProvider => (viewSegState && segProvider != null) ? segProvider : imgProvider;
 
@@ -80,9 +86,10 @@ class Result {
 }
 
 class Root extends StatefulWidget {
-  final String imagePath;
+  final String originalPath;
+  final String initialPath;
 
-  const Root({super.key, required this.imagePath});
+  const Root({super.key, required this.originalPath, required this.initialPath});
 
   @override
   State<Root> createState() => _RootState();
@@ -91,9 +98,12 @@ class Root extends StatefulWidget {
 class _RootState extends State<Root> {
 
   late List<Result> _results;
-  late Map _saveSettings;
+  late Map<String, bool> _saveSettings;
   late bool _isLoading;
-  late List _headings;
+  late List<String> _headings;
+
+  // ignore: non_constant_identifier_names
+  Iterable<num> get Areas => _results.map((result) => result.area);
 
   void setLoading(value) => setState(() => _isLoading=value);
 
@@ -110,7 +120,7 @@ class _RootState extends State<Root> {
               title: Text(element.key),
               value: element.value, 
               onChanged: (newValue) => setState(() {
-                _saveSettings[element.key] = newValue;
+                _saveSettings[element.key] = newValue!;
               })
             )
           ],
@@ -245,11 +255,34 @@ class _RootState extends State<Root> {
     )
   );
 
+  Future<void> preProcess(String path) async {
+    CroppedFile? croppedImage = await ImageCropper().cropImage(
+      sourcePath: path,
+      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1)
+    );
+    if (croppedImage != null) {
+      final newResult = Result(imagePath: croppedImage.path);
+      await newResult.determinate().whenComplete(() => _results.add(newResult));
+    }
+  }
+
+  Future<void> pickImageAndResult(ImageSource source) async {
+    XFile? imageXFile = await ImagePicker().pickImage(source: source);
+    if (imageXFile != null){
+      preProcess(imageXFile.path);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
 
-    _results = List.filled(3, Result(imagePath: widget.imagePath));
+    _results = [];
+    final initialResult = Result(imagePath: widget.initialPath);
+    initialResult.determinate().whenComplete(
+      () => setState(() => _results.add(initialResult))
+    );
+    _isLoading = false;
 
     _saveSettings = {
       'Segmentação': true,
@@ -264,11 +297,6 @@ class _RootState extends State<Root> {
       'Escala (${Default.unit}\u207B\u00B2)', 
       'Tamanho (${Default.unit})'
     ];
-
-    setLoading(false);
-    for (final result in _results) {
-      result.determinate().whenComplete(() => setState((){}));
-    }
   }
 
   @override
@@ -380,50 +408,151 @@ class _RootState extends State<Root> {
               ],
             )
           ),
-          Card(
-            child: Column(
-              children: [
-                const Text(
-                  'Resultados',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Table(
-                    border: TableBorder.all(),
-                    columnWidths: const {
-                      0: FractionColumnWidth(0.1)
-                    },
-                    children: [
-                      TableRow(
-                        decoration: BoxDecoration(color: Colors.grey[700]),
-                        children: _headings.map((value) => TableCell(
-                            child: Text(
-                              value, 
-                              textAlign: TextAlign.center, 
-                              style: const TextStyle(
-                                fontSize: 14, 
-                                fontWeight: FontWeight.bold, 
-                                color: Colors.white
+          Expanded(child: ListView(
+            children: [
+              Card(
+                child: Column(
+                  children: [
+                    const Text(
+                      'Resultados',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Table(
+                        border: TableBorder.all(),
+                        columnWidths: const {
+                          0: FractionColumnWidth(0.1)
+                        },
+                        children: [
+                          TableRow(
+                            decoration: BoxDecoration(color: Colors.grey[700]),
+                            children: _headings.map((value) => TableCell(
+                                child: Text(
+                                  value, 
+                                  textAlign: TextAlign.center, 
+                                  style: const TextStyle(
+                                    fontSize: 14, 
+                                    fontWeight: FontWeight.bold, 
+                                    color: Colors.white
+                                  )
+                                )
                               )
-                            )
+                            ).toList(),
+                          ),
+                          for (int index=0; index < _results.length; index++)
+                          TableRow(
+                            children: [(index+1).toString(), ..._results[index].summarize].map(
+                              (value) => TableCell(child: Text(value, textAlign: TextAlign.center))
+                            ).toList()
                           )
-                        ).toList(),
-                      ),
-                      for (int index=0; index < _results.length; index++)
-                      TableRow(
-                        children: [(index+1).toString(), ..._results[index].summarize].map(
-                          (value) => TableCell(child: Text(value, textAlign: TextAlign.center))
-                        ).toList()
+                        ]
                       )
-                    ]
-                  )
+                    ),
+                    if (_results.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                      child: Table(
+                        border: TableBorder.all(),
+                        columnWidths: const {
+                          0: FractionColumnWidth(0.35)
+                        },
+                        children: [
+                          TableRow(
+                            decoration: BoxDecoration(color: Colors.grey[700]),
+                            children: const [
+                              TableCell(child: Text('')),
+                              TableCell(
+                                child: Text(
+                                  'Área (${Default.unit}\u00B2)',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14, 
+                                    fontWeight: FontWeight.bold
+                                  ),
+                                )
+                              )
+                            ] 
+                          ),
+                          for (MapEntry element in statistics(Areas).entries)
+                          TableRow(
+                            children: [
+                              TableCell(
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  color: Colors.grey[700],
+                                  child: Text(
+                                    element.key,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14, 
+                                      fontWeight: FontWeight.bold
+                                    ),
+                                  )
+                                )
+                              ),
+                              TableCell(
+                                child: Text(
+                                  element.value.toStringAsFixed(Default.precision), 
+                                  textAlign: TextAlign.center
+                                )
+                              )
+                            ]
+                          ),
+                        ]
+                      )
+                    )
+                  ]
                 )
-              ]
-            )
-          )
+              )
+            ],
+          ))
         ]
-      )
+      ),
+      floatingActionButton: SpeedDial(
+        icon: Icons.add,
+        children: [
+          SpeedDialChild(
+            label: 'Câmera',
+            onTap: () => pickImageAndResult(ImageSource.camera).then(
+              (value) {
+                setState(() {});
+                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.bounceInOut);
+              },
+              onError: (e) => showErrorMessage(context, 'Erro ao utilizar a câmera!', e.toString())
+            ),
+            child: const Icon(Icons.camera_alt_outlined)
+          ),
+          SpeedDialChild(
+            label: 'Galeria',
+            onTap: () => pickImageAndResult(ImageSource.gallery).then(
+              (value) {
+                setState(() {});
+                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.bounceInOut);
+              },
+              onError: (e) => showErrorMessage(context, 'Erro ao escolher imagem!', e.toString())
+            ),
+            child: const Icon(Icons.image_outlined)
+          ),
+          SpeedDialChild(
+            label: 'Variação da mesma imagem',
+            onTap: () => preProcess(widget.originalPath).then(
+              (value) {
+                setState(() {});
+                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.bounceInOut);
+              },
+              onError: (e) => showErrorMessage(context, 'Erro ao ajustar imagem!', e.toString())
+            ),
+            child: const Icon(Icons.crop_rotate_sharp)
+          )
+        ],
+      ),
+      bottomNavigationBar: BottomAppBar(
+        shape: const CircularNotchedRectangle(),
+        child: Container(height: 50.0),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndDocked,
     );
   }
 }
