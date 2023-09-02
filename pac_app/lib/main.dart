@@ -7,7 +7,7 @@ import 'package:pac_app/info_page.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 
 void main() async {
-  runApp(MaterialApp(home: App()));
+  runApp(const MaterialApp(home: App()));
 }
 
 class App extends StatefulWidget {
@@ -20,7 +20,6 @@ class App extends StatefulWidget {
 
 class _AppState extends State<App> {
 
-  late bool _isLoading;
   final _introductionText = {
     'Como tirar uma boa foto?': [
       ['1º', 'Com a amostra sobre o papel milímetrado, posicione a câmera paralelamente à superfície e tire a foto (lembre-se de manter o ambiente bem iluminado).'], 
@@ -51,12 +50,7 @@ class _AppState extends State<App> {
     );
   }
 
-  void setLoading(bool value) => setState((){
-    _isLoading = value;
-  });
-
   Future<String?> pickImage(ImageSource source) async {
-    setLoading(true);
     XFile? imageXFile = await ImagePicker().pickImage(source: source);
     String? imagePath;
     if (imageXFile != null){
@@ -79,16 +73,14 @@ class _AppState extends State<App> {
     if (imagePath != null){
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => InfoPage(imagePath: imagePath))
+        MaterialPageRoute(builder: (context) => Root(imagePath: imagePath))
       );
     }
-    setLoading(false);
   }
 
   @override
   void initState() {
     super.initState();
-    _isLoading = true;
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp
     ]);

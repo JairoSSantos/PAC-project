@@ -90,7 +90,7 @@ def result_as_image():
 
     w, h = image.size
     pad = int(PAD_BY_WIDTH * w)
-    font = ImageFont.truetype('arial.ttf', pad)
+    font = ImageFont.truetype('app/arial.ttf', pad)
 
     items = []
     for k, v in info.items():
