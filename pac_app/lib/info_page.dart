@@ -105,6 +105,7 @@ class _RootState extends State<Root> {
   late bool _isLoading;
   late List<String> _headings;
   late int _currentPage;
+  late bool _showPostProcess;
 
   // ignore: non_constant_identifier_names
   Iterable<num> get Areas => _results.map((result) => result.area);
@@ -210,97 +211,6 @@ class _RootState extends State<Root> {
     )
   );
 
-  void postProcessing(BuildContext context) => showDialog(
-    context: context, 
-    builder: (_) => Dialog.fullscreen(
-      backgroundColor: Colors.grey[50],
-      child: StatefulBuilder(
-        builder: (context, localSetState) => Column(
-          children: [
-            AppBar(
-              title: const Text('Pós-processamento'),
-              leading: IconButton(
-                icon: const Icon(Icons.keyboard_backspace),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  Card(
-                    child: ListTile(
-                      title: Text('Imagem ${_currentPage+1}', textAlign: TextAlign.center,),
-                    )
-                  ),
-                  for (final PyFunction pyfunc in _results[_currentPage].postProcess)
-                  Card(
-                    child: ListTile(
-                      title: Text(pyfunc.label),
-                      subtitle: Column(
-                        children: [
-                          for (final PyParam param in pyfunc.params)
-                          Row(
-                            children:[
-                              Text(param.label),
-                              Slider(
-                                min: param.min.toDouble(),
-                                max: param.max.toDouble(),
-                                value: param.value.toDouble(),
-                                onChanged: (v) => localSetState(() => param.value=v.round()),
-                              ),
-                              IconButton(
-                                onPressed: () => localSetState((){
-                                  _results[_currentPage].postProcess.remove(pyfunc);
-                                }), 
-                                icon: const Icon(Icons.close)
-                              )
-                            ]
-                          )
-                        ]
-                      )
-                    )
-                  ),
-                  DropdownButton(
-                    icon: const Icon(Icons.add),
-                    items: [
-                      for (final Morphology morphology in Morphology.values)
-                      DropdownMenuItem(
-                        value: morphology.pyFunc(),
-                        child: Text(morphology.label)
-                      )
-                    ], 
-                    onChanged: (pyfunc) => localSetState(() => _results[_currentPage].postProcess.add(pyfunc!))
-                  )
-                ],
-              ),
-            ),
-            ButtonBar(
-              alignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context), 
-                  child: const Text('Fechar')
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    setLoading(true);
-                    _results[_currentPage].determinate().then(
-                      (_) => setLoading(false),
-                      onError: (e) => showAlertMessage(context, 'Erro ao determinar a área da amostra', e.toString()),
-                    );
-                  }, 
-                  child: const Text('Aplicar')
-                )
-              ],
-            )
-          ],
-        ),
-      ) 
-    )
-  );
-
   Future<void> preProcess(String path) async {
     CroppedFile? croppedImage = await ImageCropper().cropImage(
       sourcePath: path,
@@ -308,13 +218,7 @@ class _RootState extends State<Root> {
     );
     if (croppedImage != null) {
       final newResult = Result(imagePath: croppedImage.path);
-      setLoading(true);
-      await newResult.determinate().then(
-        (_) {
-          _results.add(newResult);
-          setLoading(false);
-        }
-      );
+      await newResult.determinate().whenComplete(() => _results.add(newResult));
     }
   }
 
@@ -349,6 +253,7 @@ class _RootState extends State<Root> {
       // 'Escala (px/${Default.unit}\u00B2)', 
       'Tamanho (${Default.unit})'
     ];
+    _showPostProcess = false;
   }
 
   @override
@@ -472,8 +377,8 @@ class _RootState extends State<Root> {
                 icon: const Icon(Icons.zoom_out_map)
               ),
               IconButton(
-                onPressed: () => postProcessing(context), 
-                icon: const Icon(Icons.auto_fix_high)
+                onPressed: () => setState(() => _showPostProcess=!_showPostProcess), 
+                icon: Icon(Icons.auto_fix_high, color: _showPostProcess ? Colors.red : Colors.black)
               ),
               IconButton(onPressed: (){}, icon: const Icon(Icons.grid_on)),
               if (_results.length > 1)
@@ -481,117 +386,172 @@ class _RootState extends State<Root> {
                 context, 
                 'Excluir imagem', 
                 'Deseja excluir a imagem ${_currentPage+1}?',
-                options: {'Excluir': true, 'Cancelar': false}
+                options: {'Cancelar': false, 'Excluir': true}
               ).then(
                 (confirmed) {
-                  if (confirmed) setState(() => _results.removeAt(_currentPage));
+                  if (confirmed != null && confirmed){
+                    setState(() => _results.removeAt(_currentPage));
+                    _currentPage = _results.length-1;
+                  }
                 }
               ),
               icon: const Icon(Icons.delete_outline))
             ],
           ),
           const Divider(thickness: 2),
-          Expanded(child: ListView(
-            children: [
-              Card(
-                child: Column(
-                  children: [
-                    const Text(
-                      'Resultados',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Table(
-                        border: TableBorder.all(),
-                        columnWidths: const {
-                          0: FractionColumnWidth(0.15)
-                        },
-                        children: [
-                          TableRow(
-                            decoration: BoxDecoration(color: Colors.grey[700]),
-                            children: _headings.map((value) => TableCell(
-                                child: Text(
-                                  value, 
-                                  textAlign: TextAlign.center, 
-                                  style: const TextStyle(
-                                    fontSize: 14, 
-                                    fontWeight: FontWeight.bold, 
-                                    color: Colors.white
+          Expanded(
+            child: ListView(
+              children: [
+                Card(
+                  child: Column(
+                    children: _showPostProcess ? [
+                      for (final PyFunction pyfunc in _results[_currentPage].postProcess)
+                      ListTile(
+                        title: Text(pyfunc.label),
+                        subtitle: Column(
+                          children: [
+                            for (final PyParam param in pyfunc.params)
+                            Row(
+                              children:[
+                                Text(param.label),
+                                Slider(
+                                  min: param.min.toDouble(),
+                                  max: param.max.toDouble(),
+                                  value: param.value.toDouble(),
+                                  onChanged: (v) => setState(() => param.value=v.round()),
+                                ),
+                                IconButton(
+                                  onPressed: () => setState((){
+                                    _results[_currentPage].postProcess.remove(pyfunc);
+                                  }), 
+                                  icon: const Icon(Icons.close)
+                                )
+                              ]
+                            )
+                          ]
+                        )
+                      ),
+                      DropdownButton(
+                        hint: const Text('Adicionar pós-processamento'),
+                        items: [
+                          for (final Morphology morphology in Morphology.values)
+                          DropdownMenuItem(
+                            value: morphology.pyFunc(),
+                            child: Text(morphology.label)
+                          )
+                        ], 
+                        onChanged: (pyfunc) => setState(() => _results[_currentPage].postProcess.add(pyfunc!))
+                      ),
+                      if (_results[_currentPage].postProcess.isNotEmpty)
+                      TextButton(
+                        onPressed: () {
+                          _showPostProcess = false;
+                          setLoading(true);
+                          _results[_currentPage].determinate().then(
+                            (_) => setLoading(false),
+                            onError: (e) => showAlertMessage(context, 'Erro ao determinar a área da amostra', e.toString()),
+                          );
+                        }, 
+                        child: const Text('Aplicar')
+                      )
+                    ] : [
+                      const Text(
+                        'Resultados',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Table(
+                          border: TableBorder.all(),
+                          columnWidths: const {
+                            0: FractionColumnWidth(0.15)
+                          },
+                          children: [
+                            TableRow(
+                              decoration: BoxDecoration(color: Colors.grey[700]),
+                              children: _headings.map((value) => TableCell(
+                                  child: Text(
+                                    value, 
+                                    textAlign: TextAlign.center, 
+                                    style: const TextStyle(
+                                      fontSize: 14, 
+                                      fontWeight: FontWeight.bold, 
+                                      color: Colors.white
+                                    )
                                   )
                                 )
-                              )
-                            ).toList(),
-                          ),
-                          for (int index=0; index < _results.length; index++)
-                          TableRow(
-                            // decoration: BoxDecoration(color: (_results.length > 1 &&_currentPage == index) ? Colors.blue[100] : Colors.white),
-                            children: [(index+1).toString(), ..._results[index].summarize].map(
-                              (value) => TableCell(child: Text(value, textAlign: TextAlign.center))
-                            ).toList()
-                          )
-                        ]
-                      )
-                    ),
-                    if (_results.length > 1)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                      child: Table(
-                        border: TableBorder.all(),
-                        columnWidths: const {
-                          0: FractionColumnWidth(0.35)
-                        },
-                        children: [
-                          TableRow(
-                            decoration: BoxDecoration(color: Colors.grey[700]),
-                            children: const [
-                              TableCell(child: Text('')),
-                              TableCell(
-                                child: Text(
-                                  'Área (${Default.unit}\u00B2)',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 14, 
-                                    fontWeight: FontWeight.bold
-                                  ),
-                                )
-                              )
-                            ] 
-                          ),
-                          for (MapEntry element in statistics(Areas).entries)
-                          TableRow(
-                            children: [
-                              TableCell(
-                                child: Container(
-                                  alignment: Alignment.center,
-                                  color: Colors.grey[700],
+                              ).toList(),
+                            ),
+                            for (int index=0; index < _results.length; index++)
+                            TableRow(
+                              // decoration: BoxDecoration(color: (_results.length > 1 &&_currentPage == index) ? Colors.blue[100] : Colors.white),
+                              children: [(index+1).toString(), ..._results[index].summarize].map(
+                                (value) => TableCell(child: Text(value, textAlign: TextAlign.center))
+                              ).toList()
+                            )
+                          ]
+                        )
+                      ),
+                      if (_results.length > 1)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                        child: Table(
+                          border: TableBorder.all(),
+                          columnWidths: const {
+                            0: FractionColumnWidth(0.35)
+                          },
+                          children: [
+                            TableRow(
+                              decoration: BoxDecoration(color: Colors.grey[700]),
+                              children: const [
+                                TableCell(child: Text('')),
+                                TableCell(
                                   child: Text(
-                                    element.key,
-                                    style: const TextStyle(
+                                    'Área (${Default.unit}\u00B2)',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 14, 
                                       fontWeight: FontWeight.bold
                                     ),
                                   )
                                 )
-                              ),
-                              TableCell(
-                                child: Text(
-                                  element.value.toStringAsFixed(Default.precision), 
-                                  textAlign: TextAlign.center
+                              ] 
+                            ),
+                            for (MapEntry element in statistics(Areas).entries)
+                            TableRow(
+                              children: [
+                                TableCell(
+                                  child: Container(
+                                    alignment: Alignment.center,
+                                    color: Colors.grey[700],
+                                    child: Text(
+                                      element.key,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14, 
+                                        fontWeight: FontWeight.bold
+                                      ),
+                                    )
+                                  )
+                                ),
+                                TableCell(
+                                  child: Text(
+                                    element.value.toStringAsFixed(Default.precision), 
+                                    textAlign: TextAlign.center
+                                  )
                                 )
-                              )
-                            ]
-                          ),
-                        ]
+                              ]
+                            ),
+                          ]
+                        )
                       )
-                    )
-                  ]
+                    ]
+                  )
                 )
-              )
-            ],
-          ))
+              ],
+            )
+          )
         ]
       ),
       floatingActionButton: SpeedDial(
@@ -600,7 +560,7 @@ class _RootState extends State<Root> {
           SpeedDialChild(
             label: 'Câmera',
             onTap: () => pickImageAndResult(ImageSource.camera).then(
-              (value) {
+              (_) {
                 setState(() {});
                 controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
@@ -611,7 +571,7 @@ class _RootState extends State<Root> {
           SpeedDialChild(
             label: 'Galeria',
             onTap: () => pickImageAndResult(ImageSource.gallery).then(
-              (value) {
+              (_) {
                 setState(() {});
                 controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
@@ -622,7 +582,7 @@ class _RootState extends State<Root> {
           SpeedDialChild(
             label: 'Variação da mesma imagem',
             onTap: () => preProcess(_originalPath).then(
-              (value) {
+              (_) {
                 setState(() {});
                 controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
