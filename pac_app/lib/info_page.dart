@@ -104,6 +104,7 @@ class _RootState extends State<Root> {
   late bool _isLoading;
   late List<String> _headings;
   late int _currentPage;
+  late List<PyFunction> _postProcess;
 
   // ignore: non_constant_identifier_names
   Iterable<num> get Areas => _results.map((result) => result.area);
@@ -201,6 +202,99 @@ class _RootState extends State<Root> {
     )
   );
 
+  void postProcessing(BuildContext context) => showDialog(
+    context: context, 
+    builder: (_) => Dialog.fullscreen(
+      backgroundColor: Colors.grey[50],
+      child: StatefulBuilder(
+        builder: (context, setState) => Column(
+          children: [
+            AppBar(
+              title: const Text('Pós-processamento'),
+              leading: IconButton(
+                icon: const Icon(Icons.keyboard_backspace),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  Card(
+                    child: ListTile(
+                      title: Text('Imagem ${_currentPage+1}', textAlign: TextAlign.center,),
+                    )
+                  ),
+                  for (final PyFunction pyfunc in _postProcess)
+                  Card(
+                    child: ListTile(
+                      title: Text(pyfunc.label),
+                      subtitle: Column(
+                        children: [
+                          for (final PyParam param in pyfunc.params)
+                          Row(
+                            children:[
+                              Text(param.label),
+                              Slider(
+                                min: param.min.toDouble(),
+                                max: param.max.toDouble(),
+                                value: param.value.toDouble(),
+                                onChanged: (v) => setState(() => param.value=v.round()),
+                              ),
+                              IconButton(
+                                onPressed: () => setState((){
+                                  _postProcess.remove(pyfunc);
+                                }), 
+                                icon: const Icon(Icons.close)
+                              )
+                            ]
+                          )
+                        ]
+                      ),
+                      // trailing: IconButton(
+                      //   onPressed: () => setState((){
+                      //     _postProcess.remove(pyfunc);
+                      //   }), 
+                      //   icon: const Icon(Icons.close)
+                      // )
+                    )
+                  ),
+                  DropdownButton(
+                    icon: const Icon(Icons.add),
+                    items: [
+                      for (final Morphology morphology in Morphology.values)
+                      DropdownMenuItem(
+                        value: morphology.pyFunc(),
+                        child: Text(morphology.label)
+                      )
+                    ], 
+                    onChanged: (pyfunc) => setState(() => _postProcess.add(pyfunc!))
+                  )
+                ],
+              ),
+            ),
+            ButtonBar(
+              alignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context), 
+                  child: const Text('Fechar')
+                ),
+                TextButton(
+                  onPressed: () {
+                    // setState(() => _additionalInfo[title]=content);
+                    Navigator.pop(context);
+                  }, 
+                  child: const Text('Aplicar')
+                )
+              ],
+            )
+          ],
+        ),
+      ) 
+    )
+  );
+
   Future<void> preProcess(String path) async {
     CroppedFile? croppedImage = await ImageCropper().cropImage(
       sourcePath: path,
@@ -237,6 +331,8 @@ class _RootState extends State<Root> {
       // 'Escala (px/${Default.unit}\u00B2)', 
       'Tamanho (${Default.unit})'
     ];
+
+    _postProcess = [];
   }
 
   @override
@@ -359,7 +455,10 @@ class _RootState extends State<Root> {
                 ), 
                 icon: const Icon(Icons.zoom_out_map)
               ),
-              IconButton(onPressed: (){}, icon: const Icon(Icons.auto_fix_high)),
+              IconButton(
+                onPressed: () => postProcessing(context), 
+                icon: const Icon(Icons.auto_fix_high)
+              ),
               IconButton(onPressed: (){}, icon: const Icon(Icons.grid_on)),
               if (_results.length > 1)
               IconButton(onPressed: (){}, icon: const Icon(Icons.delete_outline))
