@@ -12,6 +12,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 
 const url = 'http://192.168.15.146:5000';
+const pow2Unicode = '\u00B2';
 
 Future<Map> sendImage(String path, {String? route, Map<String, String>? fields}) async {
   final file = await http.MultipartFile.fromPath('image', path);
@@ -50,7 +51,7 @@ class Result {
 
   Result({required this.imagePath}){
     final imgFile = File(imagePath);
-    img = Image.file(imgFile);
+    img = Image.file(imgFile, fit: BoxFit.contain);
     imgProvider = FileImage(imgFile);
   }
 
@@ -65,9 +66,9 @@ class Result {
     );
     area = response['area'];
     scale = response['scale'];
-    dims = Default.imageSize * math.sqrt(scale);
+    dims = Default.imageSize * math.sqrt(response['scale']);
     final segData = const Base64Decoder().convert(response['segmentation'].split(',').last);
-    seg = Image.memory(segData);
+    seg = Image.memory(segData, fit: BoxFit.contain);
     segProvider = MemoryImage(segData);
     viewSegState = true;
   }
@@ -76,9 +77,11 @@ class Result {
 
   List<String> get summarize => [
     area.toStringAsFixed(Default.precision),
-    scale.toStringAsExponential(Default.precision),
-    '${dims.width.round()} \u00D7 ${dims.height.round()}'
+    // scale.toStringAsExponential(Default.precision),
+    realSize
   ];
+
+  String get realSize => '${dims.width.round()} \u00D7 ${dims.height.round()}';
 
   dynamic get currentProvider => (viewSegState && segProvider != null) ? segProvider : imgProvider;
 
@@ -98,81 +101,24 @@ class Root extends StatefulWidget {
 class _RootState extends State<Root> {
 
   late List<Result> _results;
-  late Map<String, bool> _saveSettings;
   late bool _isLoading;
   late List<String> _headings;
+  late int _currentPage;
 
   // ignore: non_constant_identifier_names
   Iterable<num> get Areas => _results.map((result) => result.area);
 
   void setLoading(value) => setState(() => _isLoading=value);
 
-  void showSaveSettings(BuildContext context) => showDialog(
-    context: context, 
-    builder: (context) => StatefulBuilder(
-      builder: (context, setState) => AlertDialog(
-        title: const Text('Salvar'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (MapEntry element in _saveSettings.entries)
-            CheckboxListTile(
-              title: Text(element.key),
-              value: element.value, 
-              onChanged: (newValue) => setState(() {
-                _saveSettings[element.key] = newValue!;
-              })
-            )
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context), 
-            child: const Text('Cancelar')
-          ),
-          TextButton(
-            onPressed: (){
-              // save();
-              Navigator.pop(context);
-            }, 
-            child: const Text('Salvar')
-          ),
-        ]
-      )
-    )
-  );
-
-  // Future<String> saveImage({String? path}) async {
-  //   setLoading(true);
-  //   final success = await GallerySaver.saveImage(
-  //     path ?? widget.imagePath, 
-  //     albumName: 'PAC'
-  //   );
-  //   setLoading(false);
-  //   return (success ?? false) ? 'Imagem salva!' : 'Erro ao salvar imagem!';
-  // }
-
-  // Future<void> save() async {
-  //   setLoading(true);
-  //   String path = widget.imagePath;
-  //   if (_saveSettings['Segmentação']) {
-  //     path = '${(await getTemporaryDirectory()).path}/sample.jpeg';
-  //     await File(path).writeAsBytes(_segmentation.bytes);
-  //   }
-
-  //   Map info = {};
-  //   if (_saveSettings['Área']) info.addAll({'Área':_infoMessages['Área']});
-  //   if (_saveSettings['Dimensões']) info.addAll({'Dimensões':_infoMessages['Dimensões']});
-  //   if (_saveSettings['Comentários']) info.addAll(_additionalInfo);
-  //   final response = await sendImage(path, 
-  //     route: 'result',
-  //     fields: {'informations': json.encode(info)}
-  //   );
-  //   final imageData = const Base64Decoder().convert(response['result'].split(',').last);
-  //   await File(path).writeAsBytes(imageData);
-  //   setLoading(false);
-  //   saveImage(path: path).then((message) => showQuickMessage(context, message));
-  // }
+  Future<String> saveImage({required String path}) async {
+    setLoading(true);
+    final success = await GallerySaver.saveImage(
+      path, 
+      albumName: 'PAC'
+    );
+    setLoading(false);
+    return (success ?? false) ? 'Imagem salva!' : 'Erro ao salvar imagem!';
+  }
 
   void showQuickMessage(BuildContext context, String message){
     ScaffoldMessenger.of(context).showSnackBar(
@@ -283,18 +229,12 @@ class _RootState extends State<Root> {
       () => setState(() => _results.add(initialResult))
     );
     _isLoading = false;
-
-    _saveSettings = {
-      'Segmentação': true,
-      'Área': true,
-      'Dimensões': true,
-      'Comentários': true
-    };
+    _currentPage = 0;
 
     _headings = [
       'Id',
-      'Área (${Default.unit}\u00B2)', 
-      'Escala (${Default.unit}\u207B\u00B2)', 
+      'Área (${Default.unit}$pow2Unicode)', 
+      // 'Escala (px/${Default.unit}\u00B2)', 
       'Tamanho (${Default.unit})'
     ];
   }
@@ -319,8 +259,8 @@ class _RootState extends State<Root> {
             child: const CircularProgressIndicator(color: Colors.white)
           ),
           IconButton(
-            onPressed: () => showSaveSettings(context), 
-            icon: const Icon(Icons.save)
+            onPressed: () {}, 
+            icon: const Icon(Icons.upload_file)
           ),
           PopupMenuButton<String>(
             itemBuilder: (_) => [
@@ -362,12 +302,14 @@ class _RootState extends State<Root> {
         children: [
           SizedBox(
             width: screenSize.width,
-            height: 0.425*screenSize.height,
+            height: 0.4*screenSize.height,
             child: PageView.builder(
               controller: controller,
+              onPageChanged: (value) => setState(() => _currentPage=value),
+              // physics: _keepPage ? const NeverScrollableScrollPhysics() : const AlwaysScrollableScrollPhysics(),
               itemBuilder: (context, index) => Padding(
                 padding: const EdgeInsets.all(5), 
-                child: GestureDetector(
+                child:GestureDetector(
                   onTap: () => setState(_results[index].changeViewState),
                   child: Stack(
                     children: [
@@ -398,16 +340,32 @@ class _RootState extends State<Root> {
               itemCount: _results.length
             )
           ),
-          Card(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                IconButton(onPressed: (){}, icon: const Icon(Icons.save)),
-                IconButton(onPressed: (){}, icon: const Icon(Icons.zoom_out_map)),
-                IconButton(onPressed: (){}, icon: const Icon(Icons.auto_fix_high)),
-              ],
-            )
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              IconButton(
+                onPressed: () => saveImage(path: _results[controller.page!.toInt()].imagePath).then(
+                  (message) => showQuickMessage(context, message),
+                  onError: (e) => showErrorMessage(context, 'Erro ao tentar salvar imagem!', e.toString())
+                ), 
+                icon: const Icon(Icons.save)
+              ),
+              IconButton(
+                onPressed: () => Navigator.push(
+                  context, 
+                  MaterialPageRoute(builder:
+                    (context) => ImageView(result: _results[_currentPage])
+                  )
+                ), 
+                icon: const Icon(Icons.zoom_out_map)
+              ),
+              IconButton(onPressed: (){}, icon: const Icon(Icons.auto_fix_high)),
+              IconButton(onPressed: (){}, icon: const Icon(Icons.grid_on)),
+              if (_results.length > 1)
+              IconButton(onPressed: (){}, icon: const Icon(Icons.delete_outline))
+            ],
           ),
+          const Divider(thickness: 2),
           Expanded(child: ListView(
             children: [
               Card(
@@ -422,7 +380,7 @@ class _RootState extends State<Root> {
                       child: Table(
                         border: TableBorder.all(),
                         columnWidths: const {
-                          0: FractionColumnWidth(0.1)
+                          0: FractionColumnWidth(0.15)
                         },
                         children: [
                           TableRow(
@@ -442,6 +400,7 @@ class _RootState extends State<Root> {
                           ),
                           for (int index=0; index < _results.length; index++)
                           TableRow(
+                            // decoration: BoxDecoration(color: (_results.length > 1 &&_currentPage == index) ? Colors.blue[100] : Colors.white),
                             children: [(index+1).toString(), ..._results[index].summarize].map(
                               (value) => TableCell(child: Text(value, textAlign: TextAlign.center))
                             ).toList()
@@ -518,7 +477,7 @@ class _RootState extends State<Root> {
             onTap: () => pickImageAndResult(ImageSource.camera).then(
               (value) {
                 setState(() {});
-                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.bounceInOut);
+                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
               onError: (e) => showErrorMessage(context, 'Erro ao utilizar a câmera!', e.toString())
             ),
@@ -529,7 +488,7 @@ class _RootState extends State<Root> {
             onTap: () => pickImageAndResult(ImageSource.gallery).then(
               (value) {
                 setState(() {});
-                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.bounceInOut);
+                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
               onError: (e) => showErrorMessage(context, 'Erro ao escolher imagem!', e.toString())
             ),
@@ -540,7 +499,7 @@ class _RootState extends State<Root> {
             onTap: () => preProcess(widget.originalPath).then(
               (value) {
                 setState(() {});
-                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.bounceInOut);
+                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
               onError: (e) => showErrorMessage(context, 'Erro ao ajustar imagem!', e.toString())
             ),
@@ -548,11 +507,37 @@ class _RootState extends State<Root> {
           )
         ],
       ),
-      bottomNavigationBar: BottomAppBar(
-        shape: const CircularNotchedRectangle(),
-        child: Container(height: 50.0),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+    );
+  }
+}
+
+class ImageView extends StatefulWidget {
+  final Result result;
+
+  const ImageView({super.key, required this.result});
+
+  @override
+  State<ImageView> createState() => _ImageViewState();
+}
+
+class _ImageViewState extends State<ImageView> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.keyboard_backspace),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.miniEndDocked,
+      body: GestureDetector(
+        onTap: () => setState(widget.result.changeViewState),
+        child: PhotoView(
+          imageProvider: widget.result.currentProvider,
+          minScale: PhotoViewComputedScale.contained,
+        ),
+      )
     );
   }
 }
