@@ -73,7 +73,7 @@ class Result {
     viewSegState = true;
   }
 
-  void changeViewState() => viewSegState=!viewSegState;
+  void changeViewState({bool? value}) => viewSegState= (value != null) ? value : !viewSegState;
 
   List<String> get summarize => [
     area.toStringAsFixed(Default.precision),
@@ -100,11 +100,11 @@ class Root extends StatefulWidget {
 
 class _RootState extends State<Root> {
 
+  late String _originalPath;
   late List<Result> _results;
   late bool _isLoading;
   late List<String> _headings;
   late int _currentPage;
-  late List<PyFunction> _postProcess;
 
   // ignore: non_constant_identifier_names
   Iterable<num> get Areas => _results.map((result) => result.area);
@@ -127,19 +127,27 @@ class _RootState extends State<Root> {
     );
   }
 
-  void showErrorMessage(BuildContext context, String title, String message) => showDialog(
-    context: context, 
-    builder: (_) => AlertDialog(
-      title: Text(title),
-      content: Text(message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context), 
-          child: const Text('Ok')
-        )
-      ]
-    )
-  );
+  Future<dynamic> showAlertMessage(BuildContext context, String title, String message, {Map<String, dynamic> options= const {'ok': null}}) async {
+    dynamic output;
+    await showDialog(
+      context: context, 
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          for (final MapEntry element in options.entries)
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              output = element.value;
+            }, 
+            child: Text(element.key)
+          )
+        ]
+      )
+    );
+    return output;
+  }
 
   void addInfo(BuildContext context, {String title='', String content=''}) => showDialog(
     context: context, 
@@ -207,7 +215,7 @@ class _RootState extends State<Root> {
     builder: (_) => Dialog.fullscreen(
       backgroundColor: Colors.grey[50],
       child: StatefulBuilder(
-        builder: (context, setState) => Column(
+        builder: (context, localSetState) => Column(
           children: [
             AppBar(
               title: const Text('Pós-processamento'),
@@ -225,7 +233,7 @@ class _RootState extends State<Root> {
                       title: Text('Imagem ${_currentPage+1}', textAlign: TextAlign.center,),
                     )
                   ),
-                  for (final PyFunction pyfunc in _postProcess)
+                  for (final PyFunction pyfunc in _results[_currentPage].postProcess)
                   Card(
                     child: ListTile(
                       title: Text(pyfunc.label),
@@ -239,24 +247,18 @@ class _RootState extends State<Root> {
                                 min: param.min.toDouble(),
                                 max: param.max.toDouble(),
                                 value: param.value.toDouble(),
-                                onChanged: (v) => setState(() => param.value=v.round()),
+                                onChanged: (v) => localSetState(() => param.value=v.round()),
                               ),
                               IconButton(
-                                onPressed: () => setState((){
-                                  _postProcess.remove(pyfunc);
+                                onPressed: () => localSetState((){
+                                  _results[_currentPage].postProcess.remove(pyfunc);
                                 }), 
                                 icon: const Icon(Icons.close)
                               )
                             ]
                           )
                         ]
-                      ),
-                      // trailing: IconButton(
-                      //   onPressed: () => setState((){
-                      //     _postProcess.remove(pyfunc);
-                      //   }), 
-                      //   icon: const Icon(Icons.close)
-                      // )
+                      )
                     )
                   ),
                   DropdownButton(
@@ -268,7 +270,7 @@ class _RootState extends State<Root> {
                         child: Text(morphology.label)
                       )
                     ], 
-                    onChanged: (pyfunc) => setState(() => _postProcess.add(pyfunc!))
+                    onChanged: (pyfunc) => localSetState(() => _results[_currentPage].postProcess.add(pyfunc!))
                   )
                 ],
               ),
@@ -282,8 +284,12 @@ class _RootState extends State<Root> {
                 ),
                 TextButton(
                   onPressed: () {
-                    // setState(() => _additionalInfo[title]=content);
                     Navigator.pop(context);
+                    setLoading(true);
+                    _results[_currentPage].determinate().then(
+                      (_) => setLoading(false),
+                      onError: (e) => showAlertMessage(context, 'Erro ao determinar a área da amostra', e.toString()),
+                    );
                   }, 
                   child: const Text('Aplicar')
                 )
@@ -302,13 +308,20 @@ class _RootState extends State<Root> {
     );
     if (croppedImage != null) {
       final newResult = Result(imagePath: croppedImage.path);
-      await newResult.determinate().whenComplete(() => _results.add(newResult));
+      setLoading(true);
+      await newResult.determinate().then(
+        (_) {
+          _results.add(newResult);
+          setLoading(false);
+        }
+      );
     }
   }
 
   Future<void> pickImageAndResult(ImageSource source) async {
     XFile? imageXFile = await ImagePicker().pickImage(source: source);
     if (imageXFile != null){
+      _originalPath = imageXFile.path;
       preProcess(imageXFile.path);
     }
   }
@@ -317,12 +330,17 @@ class _RootState extends State<Root> {
   void initState() {
     super.initState();
 
+    _originalPath = widget.originalPath;
     _results = [];
+    setLoading(true);
     final initialResult = Result(imagePath: widget.initialPath);
-    initialResult.determinate().whenComplete(
-      () => setState(() => _results.add(initialResult))
+    initialResult.determinate().then(
+      (_) {
+        _results.add(initialResult);
+        setLoading(false);
+      },
+      onError: (e) => showAlertMessage(context, 'Erro ao determinar a área da amostra', e.toString()),
     );
-    _isLoading = false;
     _currentPage = 0;
 
     _headings = [
@@ -331,8 +349,6 @@ class _RootState extends State<Root> {
       // 'Escala (px/${Default.unit}\u00B2)', 
       'Tamanho (${Default.unit})'
     ];
-
-    _postProcess = [];
   }
 
   @override
@@ -386,7 +402,7 @@ class _RootState extends State<Root> {
               //     (element) => element.name == value).pyFunc()
               //   ));
               //   getResults().catchError(
-              //     (error) => showErrorMessage(context, 'Erro!', error.toString())
+              //     (error) => showAlertMessage(context, 'Erro!', error.toString())
               //   );
               // }
             // }
@@ -442,7 +458,7 @@ class _RootState extends State<Root> {
               IconButton(
                 onPressed: () => saveImage(path: _results[controller.page!.toInt()].imagePath).then(
                   (message) => showQuickMessage(context, message),
-                  onError: (e) => showErrorMessage(context, 'Erro ao tentar salvar imagem!', e.toString())
+                  onError: (e) => showAlertMessage(context, 'Erro ao tentar salvar imagem!', e.toString())
                 ), 
                 icon: const Icon(Icons.save)
               ),
@@ -461,7 +477,17 @@ class _RootState extends State<Root> {
               ),
               IconButton(onPressed: (){}, icon: const Icon(Icons.grid_on)),
               if (_results.length > 1)
-              IconButton(onPressed: (){}, icon: const Icon(Icons.delete_outline))
+              IconButton(onPressed: () => showAlertMessage(
+                context, 
+                'Excluir imagem', 
+                'Deseja excluir a imagem ${_currentPage+1}?',
+                options: {'Excluir': true, 'Cancelar': false}
+              ).then(
+                (confirmed) {
+                  if (confirmed) setState(() => _results.removeAt(_currentPage));
+                }
+              ),
+              icon: const Icon(Icons.delete_outline))
             ],
           ),
           const Divider(thickness: 2),
@@ -578,7 +604,7 @@ class _RootState extends State<Root> {
                 setState(() {});
                 controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
-              onError: (e) => showErrorMessage(context, 'Erro ao utilizar a câmera!', e.toString())
+              onError: (e) => showAlertMessage(context, 'Erro ao utilizar a câmera!', e.toString())
             ),
             child: const Icon(Icons.camera_alt_outlined)
           ),
@@ -589,18 +615,18 @@ class _RootState extends State<Root> {
                 setState(() {});
                 controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
-              onError: (e) => showErrorMessage(context, 'Erro ao escolher imagem!', e.toString())
+              onError: (e) => showAlertMessage(context, 'Erro ao escolher imagem!', e.toString())
             ),
             child: const Icon(Icons.image_outlined)
           ),
           SpeedDialChild(
             label: 'Variação da mesma imagem',
-            onTap: () => preProcess(widget.originalPath).then(
+            onTap: () => preProcess(_originalPath).then(
               (value) {
                 setState(() {});
                 controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
               },
-              onError: (e) => showErrorMessage(context, 'Erro ao ajustar imagem!', e.toString())
+              onError: (e) => showAlertMessage(context, 'Erro ao ajustar imagem!', e.toString())
             ),
             child: const Icon(Icons.crop_rotate_sharp)
           )
@@ -629,13 +655,20 @@ class _ImageViewState extends State<ImageView> {
           icon: const Icon(Icons.keyboard_backspace),
           onPressed: () => Navigator.of(context).pop(),
         ),
+        title: Row(
+          children: [
+            const Text('Segmentação'),
+            Switch(
+              value: widget.result.viewSegState, 
+              onChanged: (newValue) => setState(() => widget.result.changeViewState(value: newValue)),
+              activeColor: Colors.yellow,
+            )
+          ],
+        )
       ),
-      body: GestureDetector(
-        onTap: () => setState(widget.result.changeViewState),
-        child: PhotoView(
-          imageProvider: widget.result.currentProvider,
-          minScale: PhotoViewComputedScale.contained,
-        ),
+      body: PhotoView(
+        imageProvider: widget.result.currentProvider,
+        minScale: PhotoViewComputedScale.contained,
       )
     );
   }
