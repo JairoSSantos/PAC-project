@@ -14,8 +14,29 @@ class Default{
   static const double imageHeight = 256;
   static const double imageWidth = 256;
   static const Size imageSize = Size(imageWidth, imageHeight);
-  static const String unit = 'mm';
-  static const int precision = 3;
+  static String unit = 'mm';
+  static int precision = 3;
+  static String sampleName = 'Unnamed';
+
+  static dynamic getParamByName(String name) => {
+    'unit': unit,
+    'precision': precision,
+  }[name];
+
+  static Map<String, String> get paramLabels => {
+    'unit': 'unidade',
+    'precision': 'precisão'
+  };
+
+  static dynamic getParamLabel(String name) => paramLabels[name];
+
+  static setParamByName(String name, dynamic value) {
+    if (name == 'unit'){
+      unit = value;
+    } else if (name == 'precision') {
+      precision = int.parse(value);
+    }
+  }
 }
 
 class PyParamConfig<T>{
@@ -61,7 +82,7 @@ class PyFunction{
 enum Morphology {
   areaOpening('morphology', 'area_opening', 'Remover excessos', [PyParamConfig<int>('area_threshold', 64, 0, 2000, 'Tamanho')]),
   areaClosing('morphology', 'area_closing', 'Remover buracos', [PyParamConfig<int>('area_threshold', 64, 0, 2000, 'Tamanho')]),
-  binaryOpening('ndimage', 'binary_opening', 'Abertura morfológica', [PyParamConfig<int>('iterations', 1, 1, 20, 'Iterações')]);
+  binaryOpening('ndimage', 'binary_opening', 'Aparar bordas', [PyParamConfig<int>('iterations', 1, 1, 20, 'Iterações')]);
 
   const Morphology(this.source, this.name, this.label, this.paramsConfig);
   final String source;

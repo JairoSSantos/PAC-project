@@ -1,18 +1,25 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:math' as math;
+// import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gallery_saver/gallery_saver.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
-import 'package:path_provider/path_provider.dart';
+// import 'package:path_provider/path_provider.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 
 const url = 'http://192.168.15.146:5000';
 const pow2Unicode = '\u00B2';
+
+Map<String, String> getResultLabels({bool? id}) => {
+  if (id != null && id) 'id': 'Id',
+  'area': 'Área (${Default.unit}$pow2Unicode)',
+  'extent': 'Tamanho (${Default.unit})',
+};
 
 Future<Map> sendImage(String path, {String? route, Map<String, String>? fields}) async {
   final file = await http.MultipartFile.fromPath('image', path);
@@ -46,8 +53,8 @@ class Result {
   num scale= 0;
   Size dims = Size.zero;
   List<PyFunction> postProcess = [];
-  String unit = Default.unit;
   bool viewSegState = true;
+  int? id;
 
   Result({required this.imagePath}){
     final imgFile = File(imagePath);
@@ -75,13 +82,13 @@ class Result {
 
   void changeViewState({bool? value}) => viewSegState= (value != null) ? value : !viewSegState;
 
-  List<String> get summarize => [
-    area.toStringAsFixed(Default.precision),
-    // scale.toStringAsExponential(Default.precision),
-    realSize
-  ];
+  String get extent => '${dims.width.round()} \u00D7 ${dims.height.round()}';
 
-  String get realSize => '${dims.width.round()} \u00D7 ${dims.height.round()}';
+  Map<String, String> get result => {
+    'id': id.toString(),
+    'area': area.toStringAsFixed(Default.precision),
+    'extent': extent
+  };
 
   dynamic get currentProvider => (viewSegState && segProvider != null) ? segProvider : imgProvider;
 
@@ -106,6 +113,9 @@ class _RootState extends State<Root> {
   late List<String> _headings;
   late int _currentPage;
   late bool _showPostProcess;
+  late List<String> _comments;
+  late bool _showComments;
+  late String _sampleName;
 
   // ignore: non_constant_identifier_names
   Iterable<num> get Areas => _results.map((result) => result.area);
@@ -128,7 +138,12 @@ class _RootState extends State<Root> {
     );
   }
 
-  Future<dynamic> showAlertMessage(BuildContext context, String title, String message, {Map<String, dynamic> options= const {'ok': null}}) async {
+  Future<dynamic> showAlertMessage(
+    BuildContext context, 
+    String title, 
+    String message, 
+    {Map<String, dynamic> options= const {'ok': null}}
+  ) async {
     dynamic output;
     await showDialog(
       context: context, 
@@ -150,17 +165,15 @@ class _RootState extends State<Root> {
     return output;
   }
 
-  void addInfo(BuildContext context, {String title='', String content=''}) => showDialog(
+  void addComment(BuildContext context, {String? content, String? replace}) => showDialog(
     context: context, 
     builder: (_) => AlertDialog(
-      title: TextField(
+      title: const Text('Adicionar comentário'),
+      content: TextField(
+        // expands: true,
+        maxLines: 4,
+        controller: TextEditingController(text: replace),
         decoration: const InputDecoration(
-          border: UnderlineInputBorder(),
-          labelText: 'Título',
-        ),
-        onChanged: ((value) => title=value),
-      ),
-      content: TextField(decoration: const InputDecoration(
           border: UnderlineInputBorder(),
           labelText: 'Conteúdo',
         ),
@@ -173,8 +186,13 @@ class _RootState extends State<Root> {
           ),
           TextButton(
             onPressed: () {
-              // setState(() => _additionalInfo[title]=content);
               Navigator.pop(context);
+              if (replace != null){
+                _comments.insert(_comments.indexOf(replace), content ?? replace);
+                _comments.remove(replace);
+              } else {
+                _comments.add(content!);
+              }
             }, 
             child: const Text('Salvar')
           )
@@ -182,34 +200,40 @@ class _RootState extends State<Root> {
     )
   );
 
-  void setUnit(BuildContext context, {String unit= Default.unit}) => showDialog(
-    context: context, 
-    builder: (_) => AlertDialog(
-      title: const Text('Alterar unidade'),
-      content: TextField(
-        decoration: InputDecoration(
-          border: const UnderlineInputBorder(),
-          hintText: unit
+  void setDefaultParam(BuildContext context, String paramName){
+    var currentValue = Default.getParamByName(paramName);
+    showDialog(
+      context: context, 
+      builder: (_) => AlertDialog(
+        title: Text('Alterar ${Default.getParamLabel(paramName)}'),
+        content: TextField(
+          decoration: InputDecoration(
+            border: const UnderlineInputBorder(),
+            hintText: currentValue.toString()
+          ),
+          onChanged: (newValue) => currentValue=newValue
         ),
-        onChanged: (value) => unit=value
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => setState((){
-            for (final result in _results){
-              result.unit = unit;
-            }
-            Navigator.pop(context);
-          }), 
-          child: const Text('Salvar')
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context), 
-          child: const Text('Cancelar')
-        )
-      ],
-    )
-  );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context), 
+            child: const Text('Cancelar')
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() => Default.setParamByName(paramName, currentValue));
+            }, 
+            child: const Text('Salvar')
+          )
+        ],
+      )
+    );
+  }
+
+  void addNewResult(Result newResult){
+    newResult.id = _results.length + 1;
+    _results.add(newResult);
+  }
 
   Future<void> preProcess(String path) async {
     CroppedFile? croppedImage = await ImageCropper().cropImage(
@@ -218,7 +242,7 @@ class _RootState extends State<Root> {
     );
     if (croppedImage != null) {
       final newResult = Result(imagePath: croppedImage.path);
-      await newResult.determinate().whenComplete(() => _results.add(newResult));
+      await newResult.determinate().whenComplete(() => addNewResult(newResult));
     }
   }
 
@@ -228,6 +252,214 @@ class _RootState extends State<Root> {
       _originalPath = imageXFile.path;
       preProcess(imageXFile.path);
     }
+  }
+
+  List<Widget> get postProcessingTab => [
+    for (final PyFunction pyfunc in _results[_currentPage].postProcess)
+    ListTile(
+      title: Text(pyfunc.label),
+      subtitle: Column(
+        children: [
+          for (final PyParam param in pyfunc.params)
+          Row(
+            children:[
+              Text(param.label),
+              Slider(
+                min: param.min.toDouble(),
+                max: param.max.toDouble(),
+                value: param.value.toDouble(),
+                onChanged: (v) => setState(() => param.value=v.round()),
+              ),
+              IconButton(
+                onPressed: () => setState((){
+                  _results[_currentPage].postProcess.remove(pyfunc);
+                }), 
+                icon: const Icon(Icons.close)
+              )
+            ]
+          )
+        ]
+      )
+    ),
+    DropdownButton(
+      hint: const Text('Adicionar pós-processamento'),
+      items: [
+        for (final Morphology morphology in Morphology.values)
+        DropdownMenuItem(
+          value: morphology.pyFunc(),
+          child: Text(morphology.label)
+        )
+      ], 
+      onChanged: (pyfunc) => setState(() => _results[_currentPage].postProcess.add(pyfunc!))
+    ),
+    if (_results[_currentPage].postProcess.isNotEmpty)
+    TextButton(
+      onPressed: () {
+        _showPostProcess = false;
+        setLoading(true);
+        _results[_currentPage].determinate().then(
+          (_) => setLoading(false),
+          onError: (e) => showAlertMessage(context, 'Erro ao determinar a área da amostra', e.toString()),
+        );
+      }, 
+      child: const Text('Aplicar')
+    )
+  ];
+
+  List<Widget> get commentsTab => [
+    ..._comments.map((comment) => Card(child: ListTile(
+      title: Text(comment),
+      subtitle: Row(children: [
+        IconButton(onPressed: () => setState(() => _comments.remove(comment)), icon: const Icon(Icons.delete_outline)),
+        IconButton(onPressed: (){
+          addComment(context, content: comment, replace: comment);
+          setState(() {});
+        }, icon: const Icon(Icons.edit_outlined))
+      ]),
+    ))),
+    IconButton(
+      onPressed: () => setState(() => addComment(context)), 
+      icon: const Icon(Icons.add_comment)
+    )
+  ];
+
+  List<Widget> get resultsSummaryTab => [
+    const Text(
+      'Resultados',
+      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+    ),
+    Padding(
+      padding: const EdgeInsets.all(10),
+      child: Table(
+        border: TableBorder.all(),
+        columnWidths: const {
+          0: FractionColumnWidth(0.15)
+        },
+        children: [
+          TableRow(
+            decoration: BoxDecoration(color: Colors.grey[700]),
+            children: _headings.map((value) => TableCell(
+                child: Text(
+                  value, 
+                  textAlign: TextAlign.center, 
+                  style: const TextStyle(
+                    fontSize: 14, 
+                    fontWeight: FontWeight.bold, 
+                    color: Colors.white
+                  )
+                )
+              )
+            ).toList(),
+          ),
+          for (int index=0; index < _results.length; index++)
+          TableRow(
+            // decoration: BoxDecoration(color: (_results.length > 1 &&_currentPage == index) ? Colors.blue[100] : Colors.white),
+            children: _results[index].result.values.map(
+              (value) => TableCell(child: Text(value, textAlign: TextAlign.center))
+            ).toList()
+          )
+        ]
+      )
+    ),
+    if (_results.length > 1)
+    Padding(
+      padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+      child: Table(
+        border: TableBorder.all(),
+        columnWidths: const {
+          0: FractionColumnWidth(0.35)
+        },
+        children: [
+          TableRow(
+            decoration: BoxDecoration(color: Colors.grey[700]),
+            children: [
+              const TableCell(child: Text('')),
+              TableCell(
+                child: Text(
+                  'Área (${Default.unit}\u00B2)',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14, 
+                    fontWeight: FontWeight.bold
+                  ),
+                )
+              )
+            ] 
+          ),
+          for (MapEntry element in statistics(Areas).entries)
+          TableRow(
+            children: [
+              TableCell(
+                child: Container(
+                  alignment: Alignment.center,
+                  color: Colors.grey[700],
+                  child: Text(
+                    element.key,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14, 
+                      fontWeight: FontWeight.bold
+                    ),
+                  )
+                )
+              ),
+              TableCell(
+                child: Text(
+                  element.value.toStringAsFixed(Default.precision), 
+                  textAlign: TextAlign.center
+                )
+              )
+            ]
+          ),
+        ]
+      )
+    )
+  ];
+
+  void setSampleName(){
+    var newSampleName = Default.sampleName;
+    showDialog(
+      context: context, 
+      builder: (_) => AlertDialog(
+        title: const Text('Adicione um nome à amostra'),
+        content: TextField(
+          decoration: InputDecoration(
+            border: const UnderlineInputBorder(),
+            hintText: newSampleName
+          ),
+          onChanged: (newValue) => newSampleName=newValue
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context), 
+            child: const Text('Cancelar')
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() => _sampleName=newSampleName);
+            }, 
+            child: const Text('Salvar')
+          )
+        ],
+      )
+    );
+  }
+
+  Future<Map> getReport() async {
+    final allResults = getResultLabels(id: true).map(
+      (key, label) => MapEntry(label, _results.map((element) => element.result[key]).toList())
+    );
+    final request = http.MultipartRequest('POST', Uri.parse('$url/result'));
+    for (final result in _results){
+      request.files.add(http.MultipartFile.fromBytes(result.id.toString(), result.segProvider!.bytes));
+    }
+    debugPrint(request.files.toString());
+    request.fields.addAll({'results': jsonEncode(allResults)});
+    request.fields.addAll({'sample_name': _sampleName});
+    final response = await http.Response.fromStream(await request.send());
+    return json.decode(response.body.toString());
   }
 
   @override
@@ -240,34 +472,45 @@ class _RootState extends State<Root> {
     final initialResult = Result(imagePath: widget.initialPath);
     initialResult.determinate().then(
       (_) {
-        _results.add(initialResult);
+        addNewResult(initialResult);
         setLoading(false);
       },
       onError: (e) => showAlertMessage(context, 'Erro ao determinar a área da amostra', e.toString()),
     );
     _currentPage = 0;
 
-    _headings = [
-      'Id',
-      'Área (${Default.unit}$pow2Unicode)', 
-      // 'Escala (px/${Default.unit}\u00B2)', 
-      'Tamanho (${Default.unit})'
-    ];
+    _headings = [];
     _showPostProcess = false;
+
+    _comments = [];
+    _showComments = false;
+    _sampleName = Default.sampleName;
   }
 
   @override
   Widget build(BuildContext context) {
+    _headings = [
+      'Id',
+      'Área (${Default.unit}$pow2Unicode)',  
+      'Tamanho (${Default.unit})'
+    ];
     final PageController controller = PageController(viewportFraction: 0.85);
     final screenSize = MediaQuery.of(context).size;
 
     return Scaffold(
       backgroundColor: Colors.grey[250],
       appBar: AppBar(
-        // title: const Text(''),
+        title: Text(_sampleName),
         leading: IconButton(
           icon: const Icon(Icons.keyboard_backspace),
-          onPressed: () => Navigator.of(context).popUntil(ModalRoute.withName('/')),
+          onPressed: () => showAlertMessage(
+            context, 
+            'Deseja voltar à tela inicial?', 
+            'Os resultados obtidos serão perdidos!', 
+            options: {'Cancelar': false, 'Ok': true}
+          ).then((ok) {
+            if (ok) Navigator.of(context).popUntil(ModalRoute.withName('/'));
+          }),
         ),
         actions: [
           if (_isLoading) Transform.scale(
@@ -276,41 +519,25 @@ class _RootState extends State<Root> {
             child: const CircularProgressIndicator(color: Colors.white)
           ),
           IconButton(
-            onPressed: () {}, 
+            onPressed: () => setSampleName(), 
+            icon: const Icon(Icons.edit)
+          ),
+          IconButton(
+            onPressed: () {
+              setLoading(true);
+              getReport().whenComplete(() => setLoading(false));
+            }, 
             icon: const Icon(Icons.upload_file)
           ),
           PopupMenuButton<String>(
-            itemBuilder: (_) => [
-              for (final pyfunc in Morphology.values)
-              PopupMenuItem<String>(
-                value: pyfunc.name, 
-                child: Text(pyfunc.label)
-              ),
-              const PopupMenuItem<String>(
-                value: 'add_info',
-                child: Text('Adicionar comentário')
-              ),
-              const PopupMenuItem<String>(
-                value: 'set_unit',
-                child: Text('Alterar unidade')
+            itemBuilder: (_) => Default.paramLabels.entries.map(
+              (element) => PopupMenuItem<String>(
+                value: element.key,
+                child: Text('Alterar ${element.value}')
               )
-            ],
-            // icon: const Icon(Icons.more_vert),
-            // onSelected: (value) {
-            //   if (value == 'add_info'){
-            //     addInfo(context);
-            //   } else if (value == 'set_unit') {
-            //     setUnit(context);
-            //   }
-              // } else {
-              //   setState(() => _postProcess.add(Morphology.values.firstWhere(
-              //     (element) => element.name == value).pyFunc()
-              //   ));
-              //   getResults().catchError(
-              //     (error) => showAlertMessage(context, 'Erro!', error.toString())
-              //   );
-              // }
-            // }
+            ).toList(),
+            icon: const Icon(Icons.settings),
+            onSelected: (paramName) => setDefaultParam(context, paramName)
           )
         ]
       ),
@@ -377,10 +604,19 @@ class _RootState extends State<Root> {
                 icon: const Icon(Icons.zoom_out_map)
               ),
               IconButton(
-                onPressed: () => setState(() => _showPostProcess=!_showPostProcess), 
+                onPressed: () => setState(() {
+                  _showPostProcess=!_showPostProcess;
+                  if (_showPostProcess) _showComments=false;
+                }), 
                 icon: Icon(Icons.auto_fix_high, color: _showPostProcess ? Colors.red : Colors.black)
               ),
-              IconButton(onPressed: (){}, icon: const Icon(Icons.grid_on)),
+              IconButton(
+                onPressed: () => setState(() {
+                  _showComments=!_showComments;
+                  if (_showComments) _showPostProcess=false;
+                }), 
+                icon: Icon(Icons.comment, color: _showComments ? Colors.red : Colors.black)
+              ),
               if (_results.length > 1)
               IconButton(onPressed: () => showAlertMessage(
                 context, 
@@ -404,149 +640,9 @@ class _RootState extends State<Root> {
               children: [
                 Card(
                   child: Column(
-                    children: _showPostProcess ? [
-                      for (final PyFunction pyfunc in _results[_currentPage].postProcess)
-                      ListTile(
-                        title: Text(pyfunc.label),
-                        subtitle: Column(
-                          children: [
-                            for (final PyParam param in pyfunc.params)
-                            Row(
-                              children:[
-                                Text(param.label),
-                                Slider(
-                                  min: param.min.toDouble(),
-                                  max: param.max.toDouble(),
-                                  value: param.value.toDouble(),
-                                  onChanged: (v) => setState(() => param.value=v.round()),
-                                ),
-                                IconButton(
-                                  onPressed: () => setState((){
-                                    _results[_currentPage].postProcess.remove(pyfunc);
-                                  }), 
-                                  icon: const Icon(Icons.close)
-                                )
-                              ]
-                            )
-                          ]
-                        )
-                      ),
-                      DropdownButton(
-                        hint: const Text('Adicionar pós-processamento'),
-                        items: [
-                          for (final Morphology morphology in Morphology.values)
-                          DropdownMenuItem(
-                            value: morphology.pyFunc(),
-                            child: Text(morphology.label)
-                          )
-                        ], 
-                        onChanged: (pyfunc) => setState(() => _results[_currentPage].postProcess.add(pyfunc!))
-                      ),
-                      if (_results[_currentPage].postProcess.isNotEmpty)
-                      TextButton(
-                        onPressed: () {
-                          _showPostProcess = false;
-                          setLoading(true);
-                          _results[_currentPage].determinate().then(
-                            (_) => setLoading(false),
-                            onError: (e) => showAlertMessage(context, 'Erro ao determinar a área da amostra', e.toString()),
-                          );
-                        }, 
-                        child: const Text('Aplicar')
-                      )
-                    ] : [
-                      const Text(
-                        'Resultados',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Table(
-                          border: TableBorder.all(),
-                          columnWidths: const {
-                            0: FractionColumnWidth(0.15)
-                          },
-                          children: [
-                            TableRow(
-                              decoration: BoxDecoration(color: Colors.grey[700]),
-                              children: _headings.map((value) => TableCell(
-                                  child: Text(
-                                    value, 
-                                    textAlign: TextAlign.center, 
-                                    style: const TextStyle(
-                                      fontSize: 14, 
-                                      fontWeight: FontWeight.bold, 
-                                      color: Colors.white
-                                    )
-                                  )
-                                )
-                              ).toList(),
-                            ),
-                            for (int index=0; index < _results.length; index++)
-                            TableRow(
-                              // decoration: BoxDecoration(color: (_results.length > 1 &&_currentPage == index) ? Colors.blue[100] : Colors.white),
-                              children: [(index+1).toString(), ..._results[index].summarize].map(
-                                (value) => TableCell(child: Text(value, textAlign: TextAlign.center))
-                              ).toList()
-                            )
-                          ]
-                        )
-                      ),
-                      if (_results.length > 1)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                        child: Table(
-                          border: TableBorder.all(),
-                          columnWidths: const {
-                            0: FractionColumnWidth(0.35)
-                          },
-                          children: [
-                            TableRow(
-                              decoration: BoxDecoration(color: Colors.grey[700]),
-                              children: const [
-                                TableCell(child: Text('')),
-                                TableCell(
-                                  child: Text(
-                                    'Área (${Default.unit}\u00B2)',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14, 
-                                      fontWeight: FontWeight.bold
-                                    ),
-                                  )
-                                )
-                              ] 
-                            ),
-                            for (MapEntry element in statistics(Areas).entries)
-                            TableRow(
-                              children: [
-                                TableCell(
-                                  child: Container(
-                                    alignment: Alignment.center,
-                                    color: Colors.grey[700],
-                                    child: Text(
-                                      element.key,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14, 
-                                        fontWeight: FontWeight.bold
-                                      ),
-                                    )
-                                  )
-                                ),
-                                TableCell(
-                                  child: Text(
-                                    element.value.toStringAsFixed(Default.precision), 
-                                    textAlign: TextAlign.center
-                                  )
-                                )
-                              ]
-                            ),
-                          ]
-                        )
-                      )
-                    ]
+                    children: _showPostProcess ? postProcessingTab : (
+                      _showComments ? commentsTab : resultsSummaryTab
+                    )
                   )
                 )
               ],
