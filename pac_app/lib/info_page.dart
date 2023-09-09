@@ -100,8 +100,9 @@ class Result {
 class Root extends StatefulWidget {
   final String originalPath;
   final String initialPath;
+  final String defaultSampleName;
 
-  const Root({super.key, required this.originalPath, required this.initialPath});
+  const Root({super.key, required this.originalPath, required this.initialPath, required this.defaultSampleName});
 
   @override
   State<Root> createState() => _RootState();
@@ -474,7 +475,7 @@ class _RootState extends State<Root> {
       await Permission.storage.request();
     } 
     final path = '${(await getApplicationDocumentsDirectory()).path}/$_sampleName.pdf';
-    File(path).writeAsBytes(fileBytes).whenComplete(() => OpenFilex.open(path));
+    File(path).writeAsBytes(fileBytes).whenComplete(() => OpenFilex.open(path).whenComplete(() => showQuickMessage(context, 'Relatório salvo!')));
   }
 
   @override
@@ -499,7 +500,7 @@ class _RootState extends State<Root> {
 
     _comments = [];
     _showComments = false;
-    _sampleName = Default.sampleName;
+    _sampleName = widget.defaultSampleName;
   }
 
   @override
@@ -521,7 +522,7 @@ class _RootState extends State<Root> {
           onPressed: () => showAlertMessage(
             context, 
             'Deseja voltar à tela inicial?', 
-            'Os resultados obtidos serão perdidos!', 
+            'Se não forem salvos, os resultados obtidos serão perdidos!', 
             options: {'Cancelar': false, 'Ok': true}
           ).then((ok) {
             if (ok) Navigator.of(context).popUntil(ModalRoute.withName('/'));

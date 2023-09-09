@@ -1,13 +1,13 @@
 from pathlib import Path
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
 import base64
 from io import BytesIO
 from PIL import Image
+matplotlib.use('agg')
 
 HERE = Path(__file__).parent
 TEMPLATE = Environment(loader=FileSystemLoader(HERE)).get_template('template.html')
@@ -17,12 +17,13 @@ TEMP = HERE/'temp'
 TEMP.mkdir(parents=True, exist_ok=True)
 
 def hist(results, area_label):
-    fig = plt.figure(figsize=(4, 2.75))
+    plt.clf()
+    plt.figure(figsize=(4, 2.75))
     plt.hist(results[area_label])
     plt.xlabel(area_label)
     plt.ylabel('Ocorrências')
     buf = BytesIO()
-    fig.savefig(buf, format='png')
+    plt.savefig(buf, format='png')
     data = base64.b64encode(buf.getbuffer()).decode("ascii")
     return data
 

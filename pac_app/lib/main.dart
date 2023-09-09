@@ -5,6 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:pac_app/info_page.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:pac_app/config.dart';
 
 void main() async {
   runApp(const MaterialApp(home: App()));
@@ -33,6 +37,8 @@ class _AppState extends State<App> {
       ['\u2713', 'Caso seja observado que houve uma boa segmentação, porém com pequenos buracos ou excessos, você pode aplicar a função "Remover buracos" ou "Remover excessos", respectivamente.'],
     ]
   };
+
+  late List<FileSystemEntity> _savedFiles;
 
   void showErrorMessage(BuildContext context, String title, String message){
     showDialog(
@@ -65,12 +71,32 @@ class _AppState extends State<App> {
 
   Future<void> pushInfoPage(BuildContext context, String? originalPath, String? croppedPath) async {
     if (originalPath != null && croppedPath != null){
+      var sampleName = Default.sampleName;
+      final savedReports = _savedFiles.map((e) => e.path.split('/').last.split('.').first);
+      var i = 0;
+      while (savedReports.contains(sampleName)){
+        sampleName = '${Default.sampleName} ($i)';
+        i++;
+      }
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => Root(originalPath: originalPath, initialPath: croppedPath))
-      );
+        MaterialPageRoute(builder: (context) => Root(originalPath: originalPath, initialPath: croppedPath, defaultSampleName: sampleName))
+      ).whenComplete(() => getSavedFiles());
     }
   }
+
+  void getSavedFiles() => getApplicationDocumentsDirectory().then(
+    (dir) => Directory(dir.path).list().toList().then(
+      (files) {
+        files = [
+          for (final file in files)
+          if (file.path.split('.').last == 'pdf')
+          file
+        ];
+        setState(() => _savedFiles=files);
+      }
+    )
+  );
 
   @override
   void initState() {
@@ -78,6 +104,8 @@ class _AppState extends State<App> {
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp
     ]);
+    _savedFiles = [];
+    getSavedFiles();
   }
 
   @override
@@ -108,6 +136,30 @@ class _AppState extends State<App> {
                   ],
                 )
               ),
+              if (_savedFiles.isNotEmpty)
+              Card(
+                child: Column(
+                  children: [
+                    const Center(child: Text('Relatórios salvos', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+                    for (final file in _savedFiles)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.feed_outlined),
+                        title: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(file.path.split('/').last),
+                            Row(children: [
+                              IconButton(onPressed: () => OpenFilex.open(file.path), icon: const Icon(Icons.remove_red_eye)),
+                              IconButton(onPressed: () => file.delete().whenComplete(() => getSavedFiles()), icon: const Icon(Icons.delete))
+                            ])
+                          ]
+                        ),
+                      ) 
+                    )
+                  ],
+                ),
+              )
             ],
           ),
         )
