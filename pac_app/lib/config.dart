@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import 'package:shared_preferences/shared_preferences.dart';
 
 Size getImageSize(String imagePath){
   final imageBytes = img.decodeImage(File(imagePath).readAsBytesSync())!;
@@ -36,6 +37,22 @@ class Default{
     } else if (name == 'precision') {
       precision = int.parse(value);
     }
+  }
+
+  static Future<String> get ipAddress async {
+    return (await SharedPreferences.getInstance()).getString('ipAdress') ?? '127.0.0.1';
+  }
+
+  static Future<String> get port async {
+    return (await SharedPreferences.getInstance()).getString('port') ?? '5000';
+  }
+
+  static set ipAddress(newIp) {
+    SharedPreferences.getInstance().then((pref) => pref.setString('ipAdress', newIp));
+  }
+
+  static set port(newPort) {
+    SharedPreferences.getInstance().then((pref) => pref.setString('ipPort', newPort));
   }
 }
 

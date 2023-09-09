@@ -22,6 +22,7 @@ def hist(results, area_label):
     plt.hist(results[area_label])
     plt.xlabel(area_label)
     plt.ylabel('Ocorrências')
+    plt.tight_layout()
     buf = BytesIO()
     plt.savefig(buf, format='png')
     data = base64.b64encode(buf.getbuffer()).decode("ascii")

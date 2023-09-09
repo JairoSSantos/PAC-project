@@ -98,6 +98,53 @@ class _AppState extends State<App> {
     )
   );
 
+  Future<Map<String, String>> getUrlSettings() async {
+    return {
+      'Ip do servidor': await Default.ipAddress,
+      'Porta do servidor': await Default.port
+    };
+  }
+
+  void seeSettings(BuildContext context){
+    getUrlSettings().then(
+      (settings) => showDialog(
+        context: context, 
+        builder: (_) => AlertDialog(
+          title: const Text('Configurações gerais'),
+          content: Column(
+            children: [
+              for (final setting in settings.keys)
+              ListTile(
+                title: Text(setting),
+                subtitle: TextField(
+                  decoration: InputDecoration(
+                    border: const UnderlineInputBorder(),
+                    hintText: settings[setting]
+                  ),
+                  onChanged: (newValue) => settings[setting]=newValue
+                ),
+              )
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context), 
+              child: const Text('Cancelar')
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Default.ipAddress = settings['Ip do servidor'];
+                Default.port = settings['Porta do servidor'];
+              }, 
+              child: const Text('Salvar')
+            )
+          ],
+        )
+      )
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -112,7 +159,12 @@ class _AppState extends State<App> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(title: const Text('Pellet Area Calculator')),
+      appBar: AppBar(
+        title: const Text('Pellet Area Calculator'),
+        actions: [
+          IconButton(onPressed: () => seeSettings(context), icon: const Icon(Icons.settings))
+        ],
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(10),

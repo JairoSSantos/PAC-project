@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:math' as math;
-// import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gallery_saver/gallery_saver.dart';
 import 'package:photo_view/photo_view.dart';
@@ -14,8 +13,11 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-const url = 'http://192.168.15.146:5000';
 const pow2Unicode = '\u00B2';
+
+Future<String> getUrl() async {
+  return 'http://${await Default.ipAddress}:${await Default.port}'; //prefs.getStr('ip_address') 'http://192.168.15.146:5000';
+}
 
 Map<String, String> getResultLabels({bool? id}) => {
   if (id != null && id) 'id': 'Id',
@@ -25,6 +27,7 @@ Map<String, String> getResultLabels({bool? id}) => {
 
 Future<Map> sendImage(String path, {String? route, Map<String, String>? fields}) async {
   final file = await http.MultipartFile.fromPath('image', path);
+  final url = await getUrl();
   final request = http.MultipartRequest('POST', Uri.parse('$url/${(route ?? '')}'));
   request.files.add(file);
   request.fields.addAll(fields ?? {});
@@ -456,7 +459,7 @@ class _RootState extends State<Root> {
     );
     // final images = Map.fromEntries(_results.map((result) => MapEntry(result.id.toString(), base64Encode(result.segProvider!.bytes))));
     final summary = {'#': [getResultLabels()['area']], ...statistics(_results.map((result) => result.area)).map((key, value) => MapEntry(key, [value]))};
-
+    final url = await getUrl();
     final request = http.MultipartRequest('POST', Uri.parse('$url/result'));
     final images = Map.fromEntries(_results.map((result) => MapEntry(result.id.toString(), base64Encode(result.segProvider!.bytes))));
     request.fields.addAll({
