@@ -7,10 +7,12 @@ import 'package:gallery_saver/gallery_saver.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
-// import 'package:path_provider/path_provider.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 const url = 'http://192.168.15.146:5000';
 const pow2Unicode = '\u00B2';
@@ -18,7 +20,7 @@ const pow2Unicode = '\u00B2';
 Map<String, String> getResultLabels({bool? id}) => {
   if (id != null && id) 'id': 'Id',
   'area': 'Área (${Default.unit}$pow2Unicode)',
-  'extent': 'Tamanho (${Default.unit})',
+  'extent': 'Largura (${Default.unit})',
 };
 
 Future<Map> sendImage(String path, {String? route, Map<String, String>? fields}) async {
@@ -32,13 +34,13 @@ Future<Map> sendImage(String path, {String? route, Map<String, String>? fields})
 
 num sum(Iterable<num> sample) => sample.reduce((a, b) => a + b);
 
-Map<String, num> statistics(Iterable<num> sample){
+Map<String, String> statistics(Iterable<num> sample){
   final mean = sum(sample)/sample.length;
   final std = math.sqrt(sum(sample.map((x) => math.pow(x - mean, 2)))/sample.length);
   return {
-    'Média': mean,
-    'Desvio padrão': std,
-    'Desvio relativo (%)': (100*std/mean)
+    'Média': mean.toStringAsFixed(Default.precision),
+    'Desvio padrão': std.toStringAsFixed(Default.precision),
+    'Desvio relativo (%)': (100*std/mean).toStringAsFixed(Default.precision)
   };
 }
 
@@ -82,12 +84,12 @@ class Result {
 
   void changeViewState({bool? value}) => viewSegState= (value != null) ? value : !viewSegState;
 
-  String get extent => '${dims.width.round()} \u00D7 ${dims.height.round()}';
+  // String get extent => '${} \u00D7 ${dims.height.round()}';
 
   Map<String, String> get result => {
     'id': id.toString(),
     'area': area.toStringAsFixed(Default.precision),
-    'extent': extent
+    'extent': dims.width.round().toString()
   };
 
   dynamic get currentProvider => (viewSegState && segProvider != null) ? segProvider : imgProvider;
@@ -406,7 +408,7 @@ class _RootState extends State<Root> {
               ),
               TableCell(
                 child: Text(
-                  element.value.toStringAsFixed(Default.precision), 
+                  element.value, 
                   textAlign: TextAlign.center
                 )
               )
@@ -447,19 +449,32 @@ class _RootState extends State<Root> {
     );
   }
 
-  Future<Map> getReport() async {
+  Future<void> getReport() async {
     final allResults = getResultLabels(id: true).map(
       (key, label) => MapEntry(label, _results.map((element) => element.result[key]).toList())
     );
+    // final images = Map.fromEntries(_results.map((result) => MapEntry(result.id.toString(), base64Encode(result.segProvider!.bytes))));
+    final summary = {'#': [getResultLabels()['area']], ...statistics(_results.map((result) => result.area)).map((key, value) => MapEntry(key, [value]))};
+
     final request = http.MultipartRequest('POST', Uri.parse('$url/result'));
-    for (final result in _results){
-      request.files.add(http.MultipartFile.fromBytes(result.id.toString(), result.segProvider!.bytes));
-    }
-    debugPrint(request.files.toString());
-    request.fields.addAll({'results': jsonEncode(allResults)});
-    request.fields.addAll({'sample_name': _sampleName});
+    final images = Map.fromEntries(_results.map((result) => MapEntry(result.id.toString(), base64Encode(result.segProvider!.bytes))));
+    request.fields.addAll({
+      'sample_name': _sampleName,
+      'results': jsonEncode(allResults),
+      'summary': jsonEncode(summary),
+      'area_label': getResultLabels()['area']!,
+      'images': jsonEncode(images),
+      'comments': jsonEncode(Map.fromIterables(_comments, List.filled(_comments.length, '')))
+    });
+
     final response = await http.Response.fromStream(await request.send());
-    return json.decode(response.body.toString());
+    final fileBytes = const Base64Decoder().convert(json.decode(response.body.toString())['report'].split(',').last);
+    final status = await Permission.storage.status;
+    if (!status.isGranted) {
+      await Permission.storage.request();
+    } 
+    final path = '${(await getApplicationDocumentsDirectory()).path}/$_sampleName.pdf';
+    File(path).writeAsBytes(fileBytes).whenComplete(() => OpenFilex.open(path));
   }
 
   @override
@@ -527,7 +542,7 @@ class _RootState extends State<Root> {
               setLoading(true);
               getReport().whenComplete(() => setLoading(false));
             }, 
-            icon: const Icon(Icons.upload_file)
+            icon: const Icon(Icons.feed_outlined)
           ),
           PopupMenuButton<String>(
             itemBuilder: (_) => Default.paramLabels.entries.map(

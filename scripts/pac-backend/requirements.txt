@@ -7,3 +7,5 @@ ipython
 Flask
 tensorflow
 gunicorn
+jinja2
+weasyprint
