@@ -2,7 +2,3 @@
 models/unet-*
 
 .env
-
-.vscode
-
-__pycache__

@@ -47,8 +47,8 @@ def build_report(sample_name, results, area_label, summary, images, comments):
         images = images
     )
 
-    with open('report.html', 'w') as f:
-        f.write(html)
+    # with open('report.html', 'w') as f:
+    #     f.write(html)
 
     report = HTML(string=html).write_pdf(
         # HERE/'report.pdf', 
