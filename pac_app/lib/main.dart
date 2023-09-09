@@ -112,6 +112,7 @@ class _AppState extends State<App> {
         builder: (_) => AlertDialog(
           title: const Text('Configurações gerais'),
           content: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               for (final setting in settings.keys)
               ListTile(

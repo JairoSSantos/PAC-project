@@ -53,9 +53,9 @@ def build_report(sample_name, results, area_label, summary, images, comments):
     report = HTML(string=html).write_pdf(
         # HERE/'report.pdf', 
         presentational_hints=True,
-        optimize_images=True,
-        jpeg_quality=85,
-        dpi=200,
+        # optimize_images=True,
+        # jpeg_quality=85,
+        # dpi=200,
     )
 
     return {

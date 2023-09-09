@@ -9,3 +9,4 @@ tensorflow
 gunicorn
 jinja2
 weasyprint
+tabulate
