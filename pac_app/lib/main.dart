@@ -29,12 +29,15 @@ class _AppState extends State<App> {
       ['1º', 'Com a amostra sobre o papel milímetrado, posicione a câmera paralelamente à superfície e tire a foto (lembre-se de manter o ambiente bem iluminado).'], 
       ['2º', 'Rotacione a imagem para deixá-la alinhada com as linhas do papel milimetrado.'], 
       ['3º', 'Recorte a imagem mantendo a maior parte (60-80%) de papel milímetrado.'],
-      ['', 'Observação: Para facilitar a avaliação dos resultados, recorte a imagem posicionando os seus cantos sobre vértices do papel milímetrado.']
+      ['', 'Observação: Para facilitar a avaliação dos resultados, recorte a imagem posicionando os seus cantos sobre vértices do papel milímetrado.'],
+      ['4º', 'Repita os passos anteriores para a mesma amostra, aumentando seu conjunto de imagens.'],
+      ['5º', 'Adicione um nome à amostra e salve um relatório com os resultados encontrados.'],
     ],
     'Como avaliar os resultados?': [
-      ['\u2713', 'Primeiramente, verifique se a escala de conversão foi encontrada com sucesso, observando as dimensões fornecidas e comparando com o observado na imagem.'],
-      ['\u2713', 'Quanto à segmentação, é possível dar zoom na imagem e verificar o grau do erro no resultado.'],
-      ['\u2713', 'Caso seja observado que houve uma boa segmentação, porém com pequenos buracos ou excessos, você pode aplicar a função "Remover buracos" ou "Remover excessos", respectivamente.'],
+      ['\u2713', 'Primeiramente, verifique se a escala de conversão foi encontrada com sucesso, observando a largura fornecida e comparando com o observado na respectiva imagem.'],
+      ['\u2713', 'Quanto à segmentação, é possível dar zoom nas imagens e verificar o grau do erro no resultado.'],
+      ['\u2713', 'Caso seja observado que houve uma boa segmentação, porém com pequenos buracos ou excessos, você pode aplicar alguma função de pós-processamento: "Remover buracos", "Remover excessos" ou "Aparar bordas".'],
+      ['\u2713', 'Adicione quantas imagens forem necessárias, verificando o desvio padrão do conjunto.'],
     ]
   };
 
