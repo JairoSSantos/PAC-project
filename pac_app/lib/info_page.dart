@@ -128,14 +128,29 @@ class _RootState extends State<Root> {
 
   void setLoading(value) => setState(() => _isLoading=value);
 
-  Future<String> saveImage({required String path}) async {
-    setLoading(true);
-    final success = await GallerySaver.saveImage(
-      path, 
-      albumName: 'PAC'
+  Future<String?> saveImage({required String path}) async {
+    final answer = await showAlertMessage(
+      context, 
+      'Salvar imagem', 
+      'Qual imagem você deseja salvar?', 
+      options: {'Amostra':'sample', 'Segmentação':'seg', 'Cancelar':'cancel'}
     );
-    setLoading(false);
-    return (success ?? false) ? 'Imagem salva!' : 'Erro ao salvar imagem!';
+    bool? success; 
+    if (answer != 'cancel'){
+      setLoading(true);
+      if (answer == 'seg'){
+        path = '${(await getTemporaryDirectory()).path}/$_sampleName.jpeg';
+        await File(path).writeAsBytes(_results[_currentPage].segProvider!.bytes);
+      }
+      success = await GallerySaver.saveImage(
+        path, 
+        albumName: 'PAC'
+      );
+      setLoading(false);
+      return (success ?? false) ? 'Imagem salva!' : 'Erro ao salvar imagem!';
+    } else {
+      return null;
+    }
   }
 
   void showQuickMessage(BuildContext context, String message){
@@ -608,7 +623,9 @@ class _RootState extends State<Root> {
             children: [
               IconButton(
                 onPressed: () => saveImage(path: _results[controller.page!.toInt()].imagePath).then(
-                  (message) => showQuickMessage(context, message),
+                  (message){
+                    if (message != null) showQuickMessage(context, message);
+                  },
                   onError: (e) => showAlertMessage(context, 'Erro ao tentar salvar imagem!', e.toString())
                 ), 
                 icon: const Icon(Icons.save)
