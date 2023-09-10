@@ -1,0 +1,70 @@
+<html>
+<head ang="pt-br">
+    <meta charset="UTF-8">
+    <style>
+        * {
+            /* font-size: small; */
+            font-family: sans-serif;
+        }
+        body {
+            padding: 20px;
+        }
+        table {
+            table-layout: auto;
+            /* width: 100%; */
+            width: min-content;
+            border-collapse: collapse;
+            text-align: center;
+            padding-top: 20px;
+        }
+        table th, table td {
+            font-size: smaller;
+            text-align: center;
+            border-bottom: 1px solid;
+            border-left: 1px solid;
+            border-top: 1px solid;
+            border-right: 1px solid;
+            width: max-content;
+            padding: 5px 5px;
+        }
+    </style>
+</head>
+<body>
+
+<h1> {{ sample_name }} </h1>
+<h4> Pellet Area Calculator - {{ datetime }} </h4>
+<hr>
+
+<table style="border: 0px solid;">
+    <tr style="vertical-align: top;">
+        <td>{{ results }}  </td>
+        <td> {{ summary }} </td>
+    </tr>
+</table>
+
+<img src="data:image/png;base64,{{ hist }}" width="50%">
+
+<hr>
+
+{% if is_there_comments %}
+<ul>
+    {% for content in comments %}
+    <li>{{content}}</li>
+    {% endfor %}
+</ul>
+<hr>
+{% endif %}
+
+{% if is_there_images %}
+{% for index, image in images %}
+<figure style="display:inline-block; width: 30%; border: 1px solid;">
+    <img src="data:image/png;base64,{{ image }}" width="100%">
+    <figcaption style="width: 100%; text-align: center;">{{index}}</figcaption>
+</figure>
+{% endfor %}
+
+<hr>
+{% endif %}
+
+</body>
+</html>

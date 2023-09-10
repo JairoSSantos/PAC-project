@@ -5,9 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:pac_app/info_page.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:pac_app/config.dart';
 
 void main() async {
-  runApp(MaterialApp(home: App()));
+  runApp(const MaterialApp(home: App()));
 }
 
 class App extends StatefulWidget {
@@ -20,7 +24,6 @@ class App extends StatefulWidget {
 
 class _AppState extends State<App> {
 
-  late bool _isLoading;
   final _introductionText = {
     'Como tirar uma boa foto?': [
       ['1º', 'Com a amostra sobre o papel milímetrado, posicione a câmera paralelamente à superfície e tire a foto (lembre-se de manter o ambiente bem iluminado).'], 
@@ -34,6 +37,8 @@ class _AppState extends State<App> {
       ['\u2713', 'Caso seja observado que houve uma boa segmentação, porém com pequenos buracos ou excessos, você pode aplicar a função "Remover buracos" ou "Remover excessos", respectivamente.'],
     ]
   };
+
+  late List<FileSystemEntity> _savedFiles;
 
   void showErrorMessage(BuildContext context, String title, String message){
     showDialog(
@@ -51,12 +56,7 @@ class _AppState extends State<App> {
     );
   }
 
-  void setLoading(bool value) => setState((){
-    _isLoading = value;
-  });
-
-  Future<String?> pickImage(ImageSource source) async {
-    setLoading(true);
+  Future<List<String?>> pickImage(ImageSource source) async {
     XFile? imageXFile = await ImagePicker().pickImage(source: source);
     String? imagePath;
     if (imageXFile != null){
@@ -66,39 +66,106 @@ class _AppState extends State<App> {
       );
       imagePath = croppedImage?.path;
     }
-    return imagePath;
+    return [imageXFile!.path, imagePath];
   }
 
-  Future<void> pushInfoPage(BuildContext context, String? imagePath) async {
-    /*
-    Este procedimento será chamado após cropImage,
-    sendo necessário, portanto, verificar se o usuário 
-    aceitou proseguir para InfoPage `assert (imagePath is String)`
-    ou se o usuário decidiu retornar à câmera `assert (imagePath == null)`.
-    */
-    if (imagePath != null){
+  Future<void> pushInfoPage(BuildContext context, String? originalPath, String? croppedPath) async {
+    if (originalPath != null && croppedPath != null){
+      var sampleName = Default.sampleName;
+      final savedReports = _savedFiles.map((e) => e.path.split('/').last.split('.').first);
+      var i = 0;
+      while (savedReports.contains(sampleName)){
+        sampleName = '${Default.sampleName} ($i)';
+        i++;
+      }
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => InfoPage(imagePath: imagePath))
-      );
+        MaterialPageRoute(builder: (context) => Root(originalPath: originalPath, initialPath: croppedPath, defaultSampleName: sampleName))
+      ).whenComplete(() => getSavedFiles());
     }
-    setLoading(false);
+  }
+
+  void getSavedFiles() => getApplicationDocumentsDirectory().then(
+    (dir) => Directory(dir.path).list().toList().then(
+      (files) {
+        files = [
+          for (final file in files)
+          if (file.path.split('.').last == 'pdf')
+          file
+        ];
+        setState(() => _savedFiles=files);
+      }
+    )
+  );
+
+  Future<Map<String, String>> getUrlSettings() async {
+    return {
+      'Ip do servidor': await Default.ipAddress,
+      'Porta do servidor': await Default.port
+    };
+  }
+
+  void seeSettings(BuildContext context){
+    getUrlSettings().then(
+      (settings) => showDialog(
+        context: context, 
+        builder: (_) => AlertDialog(
+          title: const Text('Configurações gerais'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final setting in settings.keys)
+              ListTile(
+                title: Text(setting),
+                subtitle: TextField(
+                  decoration: InputDecoration(
+                    border: const UnderlineInputBorder(),
+                    hintText: settings[setting]
+                  ),
+                  onChanged: (newValue) => settings[setting]=newValue
+                ),
+              )
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context), 
+              child: const Text('Cancelar')
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Default.ipAddress = settings['Ip do servidor'];
+                Default.port = settings['Porta do servidor'];
+              }, 
+              child: const Text('Salvar')
+            )
+          ],
+        )
+      )
+    );
   }
 
   @override
   void initState() {
     super.initState();
-    _isLoading = true;
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp
     ]);
+    _savedFiles = [];
+    getSavedFiles();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(title: const Text('Pellet Area Calculator')),
+      appBar: AppBar(
+        title: const Text('Pellet Area Calculator'),
+        actions: [
+          IconButton(onPressed: () => seeSettings(context), icon: const Icon(Icons.settings))
+        ],
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(10),
@@ -122,6 +189,30 @@ class _AppState extends State<App> {
                   ],
                 )
               ),
+              if (_savedFiles.isNotEmpty)
+              Card(
+                child: Column(
+                  children: [
+                    const Center(child: Text('Relatórios salvos', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+                    for (final file in _savedFiles)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.feed_outlined),
+                        title: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(file.path.split('/').last),
+                            Row(children: [
+                              IconButton(onPressed: () => OpenFilex.open(file.path), icon: const Icon(Icons.remove_red_eye)),
+                              IconButton(onPressed: () => file.delete().whenComplete(() => getSavedFiles()), icon: const Icon(Icons.delete))
+                            ])
+                          ]
+                        ),
+                      ) 
+                    )
+                  ],
+                ),
+              )
             ],
           ),
         )
@@ -131,14 +222,14 @@ class _AppState extends State<App> {
         children: [
           SpeedDialChild(
             onTap: () => pickImage(ImageSource.camera).then(
-              (path) => pushInfoPage(context, path),
+              (paths) => pushInfoPage(context, paths[0], paths[1]),
               onError: (error) => showErrorMessage(context, 'Erro ao utilizar a câmera!', error.toString())
             ),
             child: const Icon(Icons.camera_alt_outlined)
           ),
           SpeedDialChild(
             onTap: () => pickImage(ImageSource.gallery).then(
-              (path) => pushInfoPage(context, path),
+              (paths) => pushInfoPage(context, paths[0], paths[1]),
               onError: (error) => showErrorMessage(context, 'Erro ao escolher imagem!', error.toString())
             ),
             child: const Icon(Icons.image_outlined)

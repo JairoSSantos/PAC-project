@@ -2,9 +2,3 @@
 models/unet-*
 
 .env
-
-.vscode
-
-__pycache__
-
-pac-backend.tar
