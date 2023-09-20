@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:pac_app/config.dart';
+import 'package:http/http.dart' as http;
 
 void main() async {
   runApp(const MaterialApp(home: App()));
@@ -56,6 +57,12 @@ class _AppState extends State<App> {
           )
         ]
       )
+    );
+  }
+
+  void showQuickMessage(BuildContext context, String message){
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message))
     );
   }
 
@@ -138,8 +145,15 @@ class _AppState extends State<App> {
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                Default.ipAddress = settings['Ip do servidor'];
-                Default.port = settings['Porta do servidor'];
+                final url = 'http://${settings['Ip do servidor']}:${settings['Porta do servidor']}';
+                http.post(Uri.parse(url)).then(
+                  (_){
+                    Default.ipAddress = settings['Ip do servidor'];
+                    Default.port = settings['Porta do servidor'];
+                    showQuickMessage(context, 'Conexão estabecida com $url');
+                  } ,
+                  onError: (e) => showErrorMessage(context, 'Erro ao estabelecer conexão!', e.toString())
+                );
               }, 
               child: const Text('Salvar')
             )

@@ -56,7 +56,7 @@ class Result {
   Image? seg;
   num area=0; 
   num scale= 0;
-  Size dims = Size.zero;
+  num dims = 0;
   List<PyFunction> postProcess = [];
   bool viewSegState = true;
   int? id;
@@ -78,7 +78,7 @@ class Result {
     );
     area = response['area'];
     scale = response['scale'];
-    dims = Default.imageSize * math.sqrt(response['scale']);
+    dims = Default.imageSize.width * math.sqrt(response['scale']);
     final segData = const Base64Decoder().convert(response['segmentation'].split(',').last);
     seg = Image.memory(segData, fit: BoxFit.contain);
     segProvider = MemoryImage(segData);
@@ -92,7 +92,7 @@ class Result {
   Map<String, String> get result => {
     'id': id.toString(),
     'area': area.toStringAsFixed(Default.precision),
-    'extent': dims.width.round().toString()
+    'extent': dims.toStringAsFixed(Default.precision)
   };
 
   dynamic get currentProvider => (viewSegState && segProvider != null) ? segProvider : imgProvider;
@@ -263,15 +263,32 @@ class _RootState extends State<Root> {
     );
     if (croppedImage != null) {
       final newResult = Result(imagePath: croppedImage.path);
-      await newResult.determinate().whenComplete(() => addNewResult(newResult));
+      await newResult.determinate();
+      addNewResult(newResult);
+      setState(() {});
     }
   }
 
-  Future<void> pickImageAndResult(ImageSource source) async {
-    XFile? imageXFile = await ImagePicker().pickImage(source: source);
-    if (imageXFile != null){
-      _originalPath = imageXFile.path;
-      preProcess(imageXFile.path);
+  void pickImageAndResult(ImageSource source, PageController controller, {String onError= 'Erro!'}) {
+    try {
+      ImagePicker().pickImage(source: source).then(
+        (XFile? imageXFile) {
+          if (imageXFile != null){
+            _originalPath = imageXFile.path;
+            preProcess(imageXFile.path).whenComplete(
+              () {
+                controller.animateToPage(
+                  _results.length-1, 
+                  duration: const Duration(seconds: 1), 
+                  curve: Curves.fastOutSlowIn
+                );
+              } 
+            );
+          }
+        }
+      );
+    } catch (e) {
+      showAlertMessage(context, onError, e.toString());
     }
   }
 
@@ -691,23 +708,19 @@ class _RootState extends State<Root> {
         children: [
           SpeedDialChild(
             label: 'Câmera',
-            onTap: () => pickImageAndResult(ImageSource.camera).then(
-              (_) {
-                setState(() {});
-                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
-              },
-              onError: (e) => showAlertMessage(context, 'Erro ao utilizar a câmera!', e.toString())
+            onTap: () => pickImageAndResult(
+              ImageSource.camera, 
+              controller,
+              onError: 'Erro ao tirar foto!'
             ),
             child: const Icon(Icons.camera_alt_outlined)
           ),
           SpeedDialChild(
             label: 'Galeria',
-            onTap: () => pickImageAndResult(ImageSource.gallery).then(
-              (_) {
-                setState(() {});
-                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
-              },
-              onError: (e) => showAlertMessage(context, 'Erro ao escolher imagem!', e.toString())
+            onTap: () => pickImageAndResult(
+              ImageSource.gallery,
+              controller,
+              onError: 'Erro ao escolher imagem!'
             ),
             child: const Icon(Icons.image_outlined)
           ),
@@ -716,7 +729,11 @@ class _RootState extends State<Root> {
             onTap: () => preProcess(_originalPath).then(
               (_) {
                 setState(() {});
-                controller.animateToPage(_results.length-1, duration: const Duration(seconds: 1), curve: Curves.fastOutSlowIn);
+                controller.animateToPage(
+                  _results.length-1, 
+                  duration: const Duration(seconds: 1), 
+                  curve: Curves.fastOutSlowIn
+                );
               },
               onError: (e) => showAlertMessage(context, 'Erro ao ajustar imagem!', e.toString())
             ),

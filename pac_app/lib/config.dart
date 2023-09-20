@@ -52,7 +52,7 @@ class Default{
   }
 
   static set port(newPort) {
-    SharedPreferences.getInstance().then((pref) => pref.setString('ipPort', newPort));
+    SharedPreferences.getInstance().then((pref) => pref.setString('port', newPort));
   }
 }
 
