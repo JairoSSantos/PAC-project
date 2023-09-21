@@ -1,0 +1,9 @@
+version: '3.1'
+
+services:
+  PAC:
+    build: .
+    image: pac-backend
+    restart: always
+    ports:
+      - 5000:5000
