@@ -746,6 +746,8 @@ class _RootState extends State<Root> {
   }
 }
 
+enum VState{viewer, segEditor, scaEditor}
+
 class ImageView extends StatefulWidget {
   final Result result;
 
@@ -756,6 +758,16 @@ class ImageView extends StatefulWidget {
 }
 
 class _ImageViewState extends State<ImageView> {
+
+  late VState _vState;
+
+  @override
+  void initState(){
+    super.initState();
+
+    _vState = VState.viewer;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -776,8 +788,40 @@ class _ImageViewState extends State<ImageView> {
         )
       ),
       body: PhotoView(
+        backgroundDecoration: const BoxDecoration(color: Colors.white),
         imageProvider: widget.result.currentProvider,
         minScale: PhotoViewComputedScale.contained,
+        disableGestures: (_vState != VState.viewer),
+      ),
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.fromLTRB(4,8,8,8),
+        color: Colors.white,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            CircleAvatar(
+              backgroundColor: _vState == VState.segEditor ? Colors.amber : Colors.white,
+              child: IconButton(
+                onPressed: () => setState(() {
+                  _vState = _vState != VState.segEditor ? VState.segEditor : VState.viewer;
+                  if (_vState == VState.segEditor){
+                    setState(() => widget.result.changeViewState(value: true));
+                  }
+                }), 
+                icon: const Icon(Icons.brush, color: Colors.black),
+              ),
+            ),
+            CircleAvatar(
+              backgroundColor: _vState == VState.scaEditor ? Colors.amber : Colors.white,
+              child: IconButton(
+                onPressed: () => setState(() {
+                  _vState = _vState != VState.scaEditor ? VState.scaEditor : VState.viewer;
+                }), 
+                icon: const Icon(Icons.grid_3x3, color: Colors.black),
+              ),
+            )
+          ],
+        ),
       )
     );
   }
