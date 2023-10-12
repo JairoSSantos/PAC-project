@@ -2,10 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
+// import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:gallery_saver/gallery_saver.dart';
-import 'package:photo_view/photo_view.dart';
 import 'package:http/http.dart' as http;
 import 'package:pac_app/config.dart';
 import 'package:path_provider/path_provider.dart';
@@ -15,6 +14,7 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:ui' as ui;
+import 'package:image/image.dart' as imlib;
 
 const pow2Unicode = '\u00B2';
 
@@ -654,7 +654,7 @@ class _RootState extends State<Root> {
                 onPressed: () => Navigator.push(
                   context, 
                   MaterialPageRoute(builder:
-                    (context) => ImageView(result: _results[_currentPage])
+                    (context) => ImageView(result: _results[_currentPage], screenWidth: screenSize.width.toInt())
                   )
                 ), 
                 icon: const Icon(Icons.zoom_out_map)
@@ -751,24 +751,26 @@ class _RootState extends State<Root> {
 
 class Editor extends CustomPainter{
   ui.Image? image;
-  ZoomController controller;
+  List<Offset> region;
+  double radius;
 
-  Editor(this.image, this.controller);
+  Editor(this.image, this.region, this.radius);
   
   @override
   void paint(Canvas canvas, Size size) {
-    if (image != null){
-      // canvas.drawImage(image!, Offset.zero, Paint());
-      canvas.drawImageRect(image!, controller.src, controller.dst, Paint());
+    // canvas.drawImage(image!, Offset.zero, Paint());
+
+    final paint = Paint();
+    paint.color = const Color.fromARGB(255, 0, 247, 255);
+    for (final c in region) {
+      // canvas.drawRect(Rect.fromCenter(center: c, width: 1, height: 1), paint);
+      canvas.drawCircle(c, radius, paint);
     }
-    // final paint = Paint();
-    // paint.style = PaintingStyle.stroke;
-    // canvas.drawRect(controller.dst, paint);
   }
   
   @override
   bool shouldRepaint(Editor oldDelegate) {
-    return controller.isEqual(oldDelegate.controller);
+    return true;
   }
 
   
@@ -778,8 +780,9 @@ enum VState{viewer, segEditor, scaEditor}
 
 class ImageView extends StatefulWidget {
   final Result result;
+  final int screenWidth;
 
-  const ImageView({super.key, required this.result});
+  const ImageView({super.key, required this.result, required this.screenWidth});
 
   @override
   State<ImageView> createState() => _ImageViewState();
@@ -788,15 +791,27 @@ class ImageView extends StatefulWidget {
 class _ImageViewState extends State<ImageView> {
 
   late VState _vState;
-  late ZoomController _controller;
   late ui.Image? _image;
+  late List<Offset> _region;
+  late double _radius;
+  late ZoomController _controller;
 
-  Future<ui.Image> loadImage(Uint8List bytes) async {
-    final Completer<ui.Image> completer = Completer();
-    ui.decodeImageFromList(bytes, (ui.Image img) {
-      return completer.complete(img);
-    });
-    return completer.future;
+  void onPanUpdate(DragUpdateDetails details) => setState(() {
+    if (!_region.contains(details.localPosition)){
+      _region.add(details.localPosition);
+    }
+  });
+
+  Future<void> loadImage() async {
+    var img = await imlib.decodeImageFile(widget.result.imagePath);
+    if (img != null){
+      _controller.minScale = widget.screenWidth/img.width;
+      _controller.scale = _controller.minScale;
+      final Completer<ui.Image> completer = Completer();
+      ui.decodeImageFromList(imlib.encodeJpg(img), (ui.Image img) => completer.complete(img));
+      _image = await completer.future;
+      setState(() {});
+    }
   }
 
   @override
@@ -804,9 +819,11 @@ class _ImageViewState extends State<ImageView> {
     super.initState();
 
     _vState = VState.viewer;
-    _controller = ZoomController(scale: 1, defaultSize: getImageSize(widget.result.imagePath));
     _image = null;
-    loadImage(File(widget.result.imagePath).readAsBytesSync()).then((value) => setState(() => _image = value));
+    loadImage();
+    _region = [];
+    _radius = 10;
+    _controller = ZoomController();
   }
 
   @override
@@ -831,34 +848,33 @@ class _ImageViewState extends State<ImageView> {
       ),
       body: _image == null ? 
       const Center(child: CircularProgressIndicator()) : 
-      CustomPaint(
-        size: Size.fromHeight(screenSize.width),
-        painter: Editor(
-          _image,
-          _controller
+      Transform.scale(
+          scale: _controller.scale,
+          child: Transform.translate(
+            offset: _controller.offset,
+            child: Stack(
+              children: [
+                Image.file(File(widget.result.imagePath)),
+                Opacity(
+                  opacity: 0.4,
+                  child: CustomPaint(
+                    size: Size.fromHeight(screenSize.width),
+                    painter: Editor(_image, _region, _radius),
+                    child: _vState == VState.viewer ?
+                    GestureDetector(
+                      onScaleStart: (details) => setState(() => _controller.onScaleStart(details)),
+                      onScaleUpdate: (details) => setState(() => _controller.onScaleUpdate(details)),
+                    ) : GestureDetector(
+                      onPanUpdate: onPanUpdate,
+                    )
+                  ),
+                )
+              ],
+            ),
+          )
         ),
-        child: _vState != VState.viewer ? null : GestureDetector(
-          onScaleStart: (details) => setState(() => _controller.onScaleStart(details)),
-          onScaleUpdate: (details) => setState(() => _controller.onScaleUpdate(details)),
-        )
-      ),
-      // Stack(
-      //   children: [
-      //     PhotoView(
-      //       backgroundDecoration: const BoxDecoration(color: Colors.white),
-      //       imageProvider: widget.result.currentProvider(),
-      //       minScale: PhotoViewComputedScale.contained,
-      //       disableGestures: (_vState != VState.viewer),
-      //     ),
-      //     if (_vState == VState.segEditor)
-      //     GestureDetector(
-      //       onPanUpdate: (_){},
-      //       child: ,
-      //     )
-      //   ],
-      // ),
       bottomNavigationBar: Container(
-        padding: const EdgeInsets.fromLTRB(4,8,8,8),
+        padding: const EdgeInsets.fromLTRB(8,8,8,8),
         color: Colors.white,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -868,9 +884,9 @@ class _ImageViewState extends State<ImageView> {
               child: IconButton(
                 onPressed: () => setState(() {
                   _vState = _vState != VState.segEditor ? VState.segEditor : VState.viewer;
-                  if (_vState == VState.segEditor){
-                    setState(() => widget.result.changeViewState(value: true));
-                  }
+                  // if (_vState == VState.segEditor){
+                  //   setState(() {});
+                  // }
                 }), 
                 icon: const Icon(Icons.brush, color: Colors.black),
               ),

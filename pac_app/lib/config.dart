@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -118,14 +117,12 @@ enum Morphology {
 
 class ZoomController{
   late double scale;
-  late Offset offset;
-  late Size defaultSize;
+  Offset offset = Offset.zero;
+  double minScale = 1;
 
   double scaleBase = 0;
 
-  ZoomController({required this.scale, required this.defaultSize}){
-    offset = defaultSize.center(Offset.zero);
-  }
+  ZoomController({this.scale=1, this.minScale=1});
 
   void onScaleStart(ScaleStartDetails details){
     scaleBase = scale;
@@ -133,22 +130,9 @@ class ZoomController{
 
   void onScaleUpdate(ScaleUpdateDetails details){
     scale = scaleBase * details.scale;
-    if (scale < 1){
-      scale = 1;
+    if (scale < minScale){
+      scale = minScale;
     }
-    offset -= details.focalPointDelta/scale;
-  }
-
-  Size get size => defaultSize*scale;
-
-  Rect get src => Rect.fromCenter(center: defaultSize.center(Offset.zero), width: defaultSize.width, height: defaultSize.height);
-
-  Rect get dst {
-    final currentSize = size;
-    return Rect.fromCenter(center: currentSize.center(offset*(1 - scale)), width: currentSize.width, height: currentSize.height);
-  }
-
-  bool isEqual(ZoomController other){
-    return dst == other.dst;
+    offset += details.focalPointDelta;
   }
 }
