@@ -751,29 +751,34 @@ class _RootState extends State<Root> {
 
 class Editor extends CustomPainter{
   ui.Image? image;
-  List<Offset> region;
-  double radius;
+  Path region = Path();
+  Path newRegion = Path();
 
-  Editor(this.image, this.region, this.radius);
+  Editor(this.image, this.region, this.newRegion);
   
   @override
   void paint(Canvas canvas, Size size) {
-    // canvas.drawImage(image!, Offset.zero, Paint());
+    canvas.drawImage(image!, Offset.zero, Paint());
 
-    final paint = Paint();
-    paint.color = const Color.fromARGB(255, 0, 247, 255);
-    for (final c in region) {
-      // canvas.drawRect(Rect.fromCenter(center: c, width: 1, height: 1), paint);
-      canvas.drawCircle(c, radius, paint);
-    }
+    final paint1 = Paint()
+      ..color = const Color.fromARGB(100, 0, 239, 247);
+    canvas.drawPath(region, paint1);
+
+    final paint2 = Paint()
+      ..color = const Color.fromARGB(97, 49, 247, 0);
+    canvas.drawPath(newRegion, paint2);
+
+    final paint3 = Paint()
+      ..color = const Color.fromARGB(255, 229, 255, 0)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.25;
+    canvas.drawPath(Path.combine(PathOperation.union, region, newRegion), paint3);
   }
   
   @override
   bool shouldRepaint(Editor oldDelegate) {
     return true;
-  }
-
-  
+  } 
 }
 
 enum VState{viewer, segEditor, scaEditor}
@@ -792,14 +797,21 @@ class _ImageViewState extends State<ImageView> {
 
   late VState _vState;
   late ui.Image? _image;
-  late List<Offset> _region;
+  late Path _region;
+  late Path _newRegion;
   late double _radius;
   late ZoomController _controller;
 
   void onPanUpdate(DragUpdateDetails details) => setState(() {
-    if (!_region.contains(details.localPosition)){
-      _region.add(details.localPosition);
-    }
+    final brush = Path()
+      ..addOval(Rect.fromCircle(center: details.localPosition, radius: _radius));
+    _newRegion = Path.combine(PathOperation.union, _newRegion, brush);
+    // _newRegion.close();
+  });
+
+  void onPanEnd(DragEndDetails details) => setState(() {
+    _region = Path.combine(PathOperation.union, _region, _newRegion);
+    _newRegion.reset();
   });
 
   Future<void> loadImage() async {
@@ -821,7 +833,8 @@ class _ImageViewState extends State<ImageView> {
     _vState = VState.viewer;
     _image = null;
     loadImage();
-    _region = [];
+    _region = Path();
+    _newRegion = Path();
     _radius = 10;
     _controller = ZoomController();
   }
@@ -852,25 +865,18 @@ class _ImageViewState extends State<ImageView> {
           scale: _controller.scale,
           child: Transform.translate(
             offset: _controller.offset,
-            child: Stack(
-              children: [
-                Image.file(File(widget.result.imagePath)),
-                Opacity(
-                  opacity: 0.4,
-                  child: CustomPaint(
-                    size: Size.fromHeight(screenSize.width),
-                    painter: Editor(_image, _region, _radius),
-                    child: _vState == VState.viewer ?
-                    GestureDetector(
-                      onScaleStart: (details) => setState(() => _controller.onScaleStart(details)),
-                      onScaleUpdate: (details) => setState(() => _controller.onScaleUpdate(details)),
-                    ) : GestureDetector(
-                      onPanUpdate: onPanUpdate,
-                    )
-                  ),
-                )
-              ],
-            ),
+            child: CustomPaint(
+              size: Size.fromHeight(screenSize.width),
+              painter: Editor(_image, _region, _newRegion),
+              child: _vState == VState.viewer ?
+              GestureDetector(
+                onScaleStart: (details) => setState(() => _controller.onScaleStart(details)),
+                onScaleUpdate: (details) => setState(() => _controller.onScaleUpdate(details)),
+              ) : GestureDetector(
+                onPanUpdate: onPanUpdate,
+                onPanEnd: onPanEnd,
+              )
+            )
           )
         ),
       bottomNavigationBar: Container(
